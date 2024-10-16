@@ -9,9 +9,10 @@ import io
 from rapidfuzz import fuzz
 
 # Initialize components (VADER, FinBERT, RoBERTa, FinBERT-Tone, Mystem, translation model)
+
 # (Copy the initialization code from your original script)
 
-# Define helper functions (lemmatize_text, translate, get_vader_sentiment, etc.)
+# Define helper functions (lemmatize_text, translate, get_vader_sentiment...)
 # (Copy these functions from your original script)
 
 def process_file(uploaded_file):
