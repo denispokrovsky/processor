@@ -9,12 +9,74 @@ from pymystem3 import Mystem
 import io
 from rapidfuzz import fuzz
 
-# Initialize components (VADER, FinBERT, RoBERTa, FinBERT-Tone, Mystem, translation model)
+# Initialize pymystem3 for lemmatization
+mystem = Mystem()
 
-# (Copy the initialization code from your original script)
+# Set up the sentiment analyzers
+vader_analyzer = SentimentIntensityAnalyzer()
+finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
+finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
 
-# Define helper functions (lemmatize_text, translate, get_vader_sentiment...)
-# (Copy these functions from your original script)
+# Function for lemmatizing Russian text
+def lemmatize_text(text):
+    lemmatized_text = ''.join(mystem.lemmatize(text))
+    return lemmatized_text
+
+# Translation model for Russian to English
+model_name = "Helsinki-NLP/opus-mt-ru-en"
+translation_tokenizer = MarianTokenizer.from_pretrained(model_name)
+translation_model = MarianMTModel.from_pretrained(model_name)
+
+def translate(text):
+    inputs = translation_tokenizer(text, return_tensors="pt", truncation=True)
+    translated_tokens = translation_model.generate(**inputs)
+    return translation_tokenizer.decode(translated_tokens[0], skip_special_tokens=True)
+
+# Function for VADER sentiment analysis with label mapping
+def get_vader_sentiment(text):
+    score = vader_analyzer.polarity_scores(text)["compound"]
+    if score > 0.2:
+        return "Positive"
+    elif score < -0.2:
+        return "Negative"
+    return "Neutral"
+
+# Functions for FinBERT, RoBERTa, and FinBERT-Tone with label mapping
+def get_mapped_sentiment(result):
+    label = result['label'].lower()
+    if label in ["positive", "label_2", "pos", "pos_label"]:
+        return "Positive"
+    elif label in ["negative", "label_0", "neg", "neg_label"]:
+        return "Negative"
+    return "Neutral"
+
+def get_finbert_sentiment(text):
+    result = finbert(text, truncation=True, max_length=512)[0]
+    return get_mapped_sentiment(result)
+
+def get_roberta_sentiment(text):
+    result = roberta(text, truncation=True, max_length=512)[0]
+    return get_mapped_sentiment(result)
+
+def get_finbert_tone_sentiment(text):
+    result = finbert_tone(text, truncation=True, max_length=512)[0]
+    return get_mapped_sentiment(result)
+
+#Fuzzy filter out similar news for the same NER
+def fuzzy_deduplicate(df, column, threshold=65):
+    seen_texts = []
+    indices_to_keep = []
+    for i, text in enumerate(df[column]):
+        if pd.isna(text):
+            indices_to_keep.append(i)
+            continue
+        text = str(text)
+        if not seen_texts or all(fuzz.ratio(text, seen) < threshold for seen in seen_texts):
+            seen_texts.append(text)
+            indices_to_keep.append(i)
+    return df.iloc[indices_to_keep]
+
 
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Публикации')
