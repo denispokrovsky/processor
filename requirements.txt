@@ -1,8 +1,9 @@
 streamlit
 pandas
 vaderSentiment
-transformers
+transformers>=4.30.0
 torch
+sentencepiece
 pymystem3
 openpyxl
 rapidfuzz

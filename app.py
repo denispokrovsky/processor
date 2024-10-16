@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import time
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from transformers import pipeline, MarianMTModel, MarianTokenizer
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
+from transformers import MarianMTModel, MarianTokenizer
 import matplotlib.pyplot as plt
 from pymystem3 import Mystem
 import io
