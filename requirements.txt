@@ -1,0 +1,9 @@
+streamlit
+pandas
+vaderSentiment
+transformers
+torch
+pymystem3
+openpyxl
+rapidfuzz
+matplotlib
