@@ -109,16 +109,21 @@ def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Публикации')
     
     # Apply fuzzy deduplication
-    df = df.groupby('Объект').apply(lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65), include_groups=False).reset_index(drop=True)
-    
-        
+        df = df.groupby('Объект').apply(
+        lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
+    ).reset_index(drop=True)
+          
     # Translate texts
     translated_texts = []
     progress_bar = st.progress(0)
+    rogress_text = st.empty()
+    total_news = len(df)
+
     for i, text in enumerate(df['Выдержки из текста']):
         translated_text = translate(str(text))
         translated_texts.append(translated_text)
         progress_bar.progress((i + 1) / len(df))
+        progress_text.text(f"{i + 1} из {total_news} сообщений переведено")
     
     # Perform sentiment analysis
     vader_results = [get_vader_sentiment(text) for text in translated_texts]
@@ -139,9 +144,9 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 16")
+    st.title("... приступим к анализу... версия 17")
     
-    uploaded_file = st.file_uploader("ВЫБИРАЙТЕ EXCEL-файл", type="xlsx")
+    uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
     if uploaded_file is not None:
         df = process_file(uploaded_file)
