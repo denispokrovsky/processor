@@ -45,14 +45,6 @@ def translate(text):
     input_length = inputs.input_ids.shape[1]
     max_length = min(512, int(input_length * 1.5))
     
-    # Estimate total translation time (adjust this based on your observations)
-    estimated_time = input_length * 0.1  # 0.1 seconds per input token, adjust as needed
-    
-    # Set up the progress bar
-    pbar = tqdm(total=100, desc="Translating", unit="%")
-    
-    start_time = time.time()
-    
     # Generate translation
     translated_tokens = translation_model.generate(
         **inputs,
@@ -61,19 +53,6 @@ def translate(text):
         no_repeat_ngram_size=2,
         early_stopping=True
     )
-    
-    # Update progress bar based on elapsed time
-    while time.time() - start_time < estimated_time:
-        elapsed = time.time() - start_time
-        progress = min(int((elapsed / estimated_time) * 100), 99)
-        pbar.n = progress
-        pbar.refresh()
-        time.sleep(0.1)
-    
-    # Ensure the progress bar reaches 100%
-    pbar.n = 100
-    pbar.refresh()
-    pbar.close()
     
     # Decode the translated tokens
     translated_text = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)[0]
@@ -129,8 +108,6 @@ def fuzzy_deduplicate(df, column, threshold=65):
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Публикации')
     
-
-
     # Apply fuzzy deduplication
     df = df.groupby('Объект').apply(lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65), include_groups=False).reset_index(drop=True)
     
