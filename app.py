@@ -141,7 +141,7 @@ def process_file(uploaded_file):
     df['FinBERT'] = finbert_results
     df['RoBERTa'] = roberta_results
     df['FinBERT-Tone'] = finbert_tone_results
-    df['Translated']
+    df['Translated'] = translated_texts
     
     # Reorder columns
     columns_order = ['Объект', 'ruBERT', 'FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста', 'Translated' ]
@@ -150,7 +150,7 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 21")
+    st.title("... приступим к анализу... версия 22")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
