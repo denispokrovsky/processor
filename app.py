@@ -109,7 +109,7 @@ def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Публикации')
     
     # Apply fuzzy deduplication
-        df = df.groupby('Объект').apply(
+    df = df.groupby('Объект').apply(
         lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
     ).reset_index(drop=True)
           
