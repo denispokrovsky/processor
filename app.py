@@ -108,12 +108,14 @@ def fuzzy_deduplicate(df, column, threshold=65):
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Публикации')
     
+    original_news_count = len(df)
+
     # Apply fuzzy deduplication
     df = df.groupby('Объект').apply(
         lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
     ).reset_index(drop=True)
 
-    original_news_count = len(pre_df)
+    
     remaining_news_count = len(df)
     duplicates_removed = original_news_count - remaining_news_count
 
