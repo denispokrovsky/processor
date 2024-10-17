@@ -125,14 +125,18 @@ def process_file(uploaded_file):
 
     # Translate texts
     translated_texts = []
+    lemmatized_texts = []
     progress_bar = st.progress(0)
     progress_text = st.empty()
     total_news = len(df)
 
     texts = df['Выдержки из текста'].tolist()
 
-    for i, text in enumerate(df['Выдержки из текста']):
-        translated_text = translate(str(lemmatize_text(text)))
+    for text in df['Выдержки из текста']:
+        lemmatized_texts.append(lemmatize_text(text))
+
+    for i, text in enumerate(lemmatized_texts):
+        translated_text = translate(str(text))
         translated_texts.append(translated_text)
         progress_bar.progress((i + 1) / len(df))
         progress_text.text(f"{i + 1} из {total_news} сообщений предобработано")
@@ -159,7 +163,7 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 26")
+    st.title("... приступим к анализу... версия 27")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
