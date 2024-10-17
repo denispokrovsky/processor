@@ -116,7 +116,7 @@ def process_file(uploaded_file):
     # Translate texts
     translated_texts = []
     progress_bar = st.progress(0)
-    rogress_text = st.empty()
+    progress_text = st.empty()
     total_news = len(df)
 
     for i, text in enumerate(df['Выдержки из текста']):
@@ -144,7 +144,7 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 17")
+    st.title("... приступим к анализу... версия 19")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
