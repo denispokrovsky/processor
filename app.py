@@ -32,7 +32,6 @@ def create_analysis_data(df):
             analysis_data.append([row['Объект'], 'РИСК УБЫТКА', row['Заголовок'], row['Выдержки из текста']])
     return pd.DataFrame(analysis_data, columns=['Объект', 'Тип риска', 'Заголовок', 'Текст'])
 
-
 # Function for lemmatizing Russian text
 def lemmatize_text(text):
     words = text.split()
@@ -116,8 +115,13 @@ def fuzzy_deduplicate(df, column, threshold=65):
 
 
 def process_file(uploaded_file):
-    
     df = pd.read_excel(uploaded_file, sheet_name='Публикации')
+    
+    required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        st.error(f"Error: The following required columns are missing from the input file: {', '.join(missing_columns)}")
+        st.stop()
     
     original_news_count = len(df)
 
@@ -126,12 +130,10 @@ def process_file(uploaded_file):
         lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
     ).reset_index(drop=True)
 
-    
     remaining_news_count = len(df)
     duplicates_removed = original_news_count - remaining_news_count
 
     st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
-
 
     # Translate texts
     translated_texts = []
@@ -152,25 +154,24 @@ def process_file(uploaded_file):
         progress_text.text(f"{i + 1} из {total_news} сообщений предобработано")
     
     # Perform sentiment analysis
-    #rubert1_results = [get_rubert1_sentiment(text) for text in texts]
     rubert2_results = [get_rubert2_sentiment(text) for text in texts]
     finbert_results = [get_finbert_sentiment(text) for text in translated_texts]
     roberta_results = [get_roberta_sentiment(text) for text in translated_texts]
     finbert_tone_results = [get_finbert_tone_sentiment(text) for text in translated_texts]
     
-    # Add results to DataFrame
-    #df['ruBERT1'] = rubert1_results
-    df['ruBERT2'] = rubert2_results
-    df['FinBERT'] = finbert_results
-    df['RoBERTa'] = roberta_results
-    df['FinBERT-Tone'] = finbert_tone_results
-    df['Translated'] = translated_texts
+    # Create a new DataFrame with processed data
+    processed_df = pd.DataFrame({
+        'Объект': df['Объект'],
+        'Заголовок': df['Заголовок'],  # Preserve original 'Заголовок'
+        'ruBERT2': rubert2_results,
+        'FinBERT': finbert_results,
+        'RoBERTa': roberta_results,
+        'FinBERT-Tone': finbert_tone_results,
+        'Выдержки из текста': df['Выдержки из текста'],
+        'Translated': translated_texts
+    })
     
-    # Reorder columns
-    columns_order = ['Объект', 'ruBERT2','FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста', 'Translated' ]
-    df = df[columns_order]
-    
-    return df
+    return processed_df
 
 def create_output_file(df, uploaded_file, analysis_df):
     # Create a new workbook
@@ -238,7 +239,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 35+")
+    st.title("... приступим к анализу... версия 36+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
