@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from pymystem3 import Mystem
 import io
 from rapidfuzz import fuzz
+from tqdm import tqdm
+import torch
 
 # Initialize pymystem3 for lemmatization
 mystem = Mystem()
@@ -20,8 +22,12 @@ finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
 
 # Function for lemmatizing Russian text
 def lemmatize_text(text):
-    lemmatized_text = ''.join(mystem.lemmatize(text))
-    return lemmatized_text
+    words = text.split()
+    lemmatized_words = []
+    for word in tqdm(words, desc="Lemmatizing", unit="word"):
+        lemmatized_word = ''.join(mystem.lemmatize(word))
+        lemmatized_words.append(lemmatized_word)
+    return ' '.join(lemmatized_words)
 
 # Translation model for Russian to English
 model_name = "Helsinki-NLP/opus-mt-ru-en"
@@ -31,7 +37,33 @@ translation_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 translator = pipeline("translation", model="Helsinki-NLP/opus-mt-ru-en")
 
 def translate(text):
-    return translator(text)[0]['translation_text']
+    # Tokenize the input text
+    inputs = translation_tokenizer(text, return_tensors="pt", truncation=True)
+    
+    # Get the number of tokens in the input
+    input_length = inputs.input_ids.shape[1]
+    
+    # Set up the progress bar
+    progress_bar = tqdm(total=input_length, desc="Translating", unit="token")
+    
+    # Custom callback to update the progress bar
+    def update_progress_bar(beam_idx, token_idx, token):
+        progress_bar.update(1)
+    
+    # Generate translation with progress updates
+    translated_tokens = translation_model.generate(
+        **inputs,
+        num_beams=5,
+        max_length=input_length + 50,  # Adjust as needed
+        callback=update_progress_bar
+    )
+    
+    # Close the progress bar
+    progress_bar.close()
+    
+    # Decode the translated tokens
+    translated_text = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)[0]
+    return translated_text
 
 # Function for VADER sentiment analysis with label mapping
 def get_vader_sentiment(text):
