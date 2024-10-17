@@ -238,7 +238,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 34+")
+    st.title("... приступим к анализу... версия 35+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
@@ -269,7 +269,7 @@ def main():
 
 
         # Offer download of results
-        output = create_output_file(df)
+        output = create_output_file(df, uploaded_file, analysis_df)
         st.download_button(
             label="Скачать результат анализа новостей",
             data=output,
