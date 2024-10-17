@@ -164,74 +164,65 @@ def process_file(uploaded_file):
     return df
 
 def create_output_file(df):
-    # Create a new Excel writer object
-    output = io.BytesIO()
-    writer = pd.ExcelWriter(output, engine='openpyxl')
-    
     # Load the sample file to copy its structure
     sample_wb = load_workbook("sample_file.xlsx")
     
-    # Process data for 'Сводка' sheet
-    entities = df['Объект'].unique()
-    summary_data = []
-    for entity in entities:
-        entity_df = df[df['Объект'] == entity]
-        total_news = len(entity_df)
-        negative_news = sum((entity_df['FinBERT'] == 'Negative') | 
-                            (entity_df['RoBERTa'] == 'Negative') | 
-                            (entity_df['FinBERT-Tone'] == 'Negative'))
-        positive_news = sum((entity_df['FinBERT'] == 'Positive') | 
-                            (entity_df['RoBERTa'] == 'Positive') | 
-                            (entity_df['FinBERT-Tone'] == 'Positive'))
-        summary_data.append([entity, total_news, negative_news, positive_news])
-    
-    summary_df = pd.DataFrame(summary_data, columns=['Объект', 'Всего новостей', 'Отрицательные', 'Положительные'])
-    summary_df = summary_df.sort_values('Отрицательные', ascending=False)
-    
-    # Write 'Сводка' sheet
-    if 'Сводка' in sample_wb.sheetnames:
-        writer.book['Сводка'] = sample_wb['Сводка']
-    summary_df.to_excel(writer, sheet_name='Сводка', startrow=3, startcol=4, index=False, header=False)
-    
-    # Process data for 'Значимые' and 'Анализ' sheets
-    significant_data = []
-    analysis_data = []
-    for _, row in df.iterrows():
-        if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
-            sentiment = 'Negative' if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']) else 'Positive'
-            significant_data.append([row['Объект'], sentiment, row['Заголовок'], row['Выдержки из текста']])
+    # Create a new Excel writer object
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        writer.book = sample_wb
+        writer.sheets = {ws.title: ws for ws in sample_wb.worksheets}
         
-        if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
-            analysis_data.append([row['Объект'], 'РИСК УБЫТКА', row['Заголовок'], row['Выдержки из текста']])
+        # Process data for 'Сводка' sheet
+        entities = df['Объект'].unique()
+        summary_data = []
+        for entity in entities:
+            entity_df = df[df['Объект'] == entity]
+            total_news = len(entity_df)
+            negative_news = sum((entity_df['FinBERT'] == 'Negative') | 
+                                (entity_df['RoBERTa'] == 'Negative') | 
+                                (entity_df['FinBERT-Tone'] == 'Negative'))
+            positive_news = sum((entity_df['FinBERT'] == 'Positive') | 
+                                (entity_df['RoBERTa'] == 'Positive') | 
+                                (entity_df['FinBERT-Tone'] == 'Positive'))
+            summary_data.append([entity, total_news, negative_news, positive_news])
+        
+        summary_df = pd.DataFrame(summary_data, columns=['Объект', 'Всего новостей', 'Отрицательные', 'Положительные'])
+        summary_df = summary_df.sort_values('Отрицательные', ascending=False)
+        
+        # Write 'Сводка' sheet
+        summary_df.to_excel(writer, sheet_name='Сводка', startrow=3, startcol=4, index=False, header=False)
+        
+        # Process data for 'Значимые' and 'Анализ' sheets
+        significant_data = []
+        analysis_data = []
+        for _, row in df.iterrows():
+            if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
+                sentiment = 'Negative' if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']) else 'Positive'
+                significant_data.append([row['Объект'], sentiment, row['Заголовок'], row['Выдержки из текста']])
+            
+            if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
+                analysis_data.append([row['Объект'], 'РИСК УБЫТКА', row['Заголовок'], row['Выдержки из текста']])
+        
+        # Write 'Значимые' sheet
+        significant_df = pd.DataFrame(significant_data, columns=['Объект', 'Окраска', 'Заголовок', 'Текст'])
+        significant_df.to_excel(writer, sheet_name='Значимые', startrow=2, startcol=2, index=False)
+        
+        # Write 'Анализ' sheet
+        analysis_df = pd.DataFrame(analysis_data, columns=['Объект', 'Тип риска', 'Заголовок', 'Текст'])
+        analysis_df.to_excel(writer, sheet_name='Анализ', startrow=3, startcol=4, index=False)
+        
+        # Copy 'Публикации' sheet from original file
+        df.to_excel(writer, sheet_name='Публикации', index=False)
+        
+        # Add 'Тех.приложение' sheet
+        df.to_excel(writer, sheet_name='Тех.приложение', index=False)
     
-    # Write 'Значимые' sheet
-    if 'Значимые' in sample_wb.sheetnames:
-        writer.book['Значимые'] = sample_wb['Значимые']
-    significant_df = pd.DataFrame(significant_data, columns=['Объект', 'Окраска', 'Заголовок', 'Текст'])
-    significant_df.to_excel(writer, sheet_name='Значимые', startrow=2, startcol=2, index=False)
-    
-    # Write 'Анализ' sheet
-    if 'Анализ' in sample_wb.sheetnames:
-        writer.book['Анализ'] = sample_wb['Анализ']
-    analysis_df = pd.DataFrame(analysis_data, columns=['Объект', 'Тип риска', 'Заголовок', 'Текст'])
-    analysis_df.to_excel(writer, sheet_name='Анализ', startrow=3, startcol=4, index=False)
-    
-    # Copy 'Публикации' sheet from original file
-    if 'Публикации' in sample_wb.sheetnames:
-        writer.book['Публикации'] = sample_wb['Публикации']
-    df.to_excel(writer, sheet_name='Публикации', index=False)
-    
-    # Add 'Тех.приложение' sheet
-    df.to_excel(writer, sheet_name='Тех.приложение', index=False)
-    
-    writer.save()
     output.seek(0)
-    
     return output
 
-
 def main():
-    st.title("... приступим к анализу... версия 31+")
+    st.title("... приступим к анализу... версия 32+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
