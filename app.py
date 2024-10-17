@@ -20,7 +20,9 @@ mystem = Mystem()
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
 roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
 finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
-sberubert = pipeline("sentiment-analysis", model = "ai-forever/ruBert-base")
+rubert1 = pipeline("sentiment-analysis", model = "DeepPavlov/rubert-base-cased")
+rubert2 = pipeline("sentiment-analysis", model = "blanchefort/rubert-base-cased-sentiment")
+
 
 # Function for lemmatizing Russian text
 def lemmatize_text(text):
@@ -69,10 +71,13 @@ def get_mapped_sentiment(result):
         return "Negative"
     return "Neutral"
 
-def get_sberubert_sentiment(text):
-    result = sberubert(text, truncation=True, max_length=512)[0]
+def get_rubert1_sentiment(text):
+    result = rubert(text, truncation=True, max_length=512)[0]
     return get_mapped_sentiment(result)
 
+def get_rubert2_sentiment(text):
+    result = rubert(text, truncation=True, max_length=512)[0]
+    return get_mapped_sentiment(result)
 
 def get_finbert_sentiment(text):
     result = finbert(text, truncation=True, max_length=512)[0]
@@ -133,26 +138,28 @@ def process_file(uploaded_file):
         progress_text.text(f"{i + 1} из {total_news} сообщений переведено")
     
     # Perform sentiment analysis
-    rubert_results = [get_sberubert_sentiment(text) for text in texts]
+    rubert1_results = [get_rubert1_sentiment(text) for text in texts]
+    rubert2_results = [get_rubert2_sentiment(text) for text in texts]
     finbert_results = [get_finbert_sentiment(text) for text in translated_texts]
     roberta_results = [get_roberta_sentiment(text) for text in translated_texts]
     finbert_tone_results = [get_finbert_tone_sentiment(text) for text in translated_texts]
     
     # Add results to DataFrame
-    df['ruBERT'] = rubert_results
+    df['ruBERT1'] = rubert1_results
+    df['ruBERT2'] = rubert2_results
     df['FinBERT'] = finbert_results
     df['RoBERTa'] = roberta_results
     df['FinBERT-Tone'] = finbert_tone_results
     df['Translated'] = translated_texts
     
     # Reorder columns
-    columns_order = ['Объект', 'ruBERT', 'FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста', 'Translated' ]
+    columns_order = ['Объект', 'ruBERT1', 'ruBERT2','FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста', 'Translated' ]
     df = df[columns_order]
     
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 23")
+    st.title("... приступим к анализу... версия 24")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
