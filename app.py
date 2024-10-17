@@ -43,22 +43,33 @@ def translate(text):
     # Get the number of tokens in the input
     input_length = inputs.input_ids.shape[1]
     
+    # Estimate the maximum length of the output
+    max_length = input_length * 2  # This is an estimate, adjust as needed
+    
     # Set up the progress bar
-    progress_bar = tqdm(total=input_length, desc="Translating", unit="token")
+    progress_bar = tqdm(total=100, desc="Translating", unit="%")
     
-    # Custom callback to update the progress bar
-    def update_progress_bar(beam_idx, token_idx, token):
-        progress_bar.update(1)
-    
-    # Generate translation with progress updates
+    # Generate translation
+    start_time = time.time()
     translated_tokens = translation_model.generate(
         **inputs,
         num_beams=5,
-        max_length=input_length + 50,  # Adjust as needed
-        callback=update_progress_bar
+        max_length=max_length,
+        no_repeat_ngram_size=2,
+        early_stopping=True
     )
     
-    # Close the progress bar
+    # Estimate progress based on time
+    while not translated_tokens.size(1):
+        elapsed_time = time.time() - start_time
+        estimated_progress = min(int((elapsed_time / (input_length * 0.1)) * 100), 99)
+        progress_bar.n = estimated_progress
+        progress_bar.refresh()
+        time.sleep(0.1)
+    
+    # Ensure the progress bar reaches 100%
+    progress_bar.n = 100
+    progress_bar.refresh()
     progress_bar.close()
     
     # Decode the translated tokens
