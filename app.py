@@ -3,7 +3,6 @@ import pandas as pd
 import time
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
-#from transformers import MarianMTModel, MarianTokenizer
 import matplotlib.pyplot as plt
 from pymystem3 import Mystem
 import io
@@ -11,6 +10,7 @@ from rapidfuzz import fuzz
 from tqdm.auto import tqdm
 import time
 import torch
+from openpyxl import load_workbook
 
 # Initialize pymystem3 for lemmatization
 mystem = Mystem()
@@ -107,6 +107,7 @@ def fuzzy_deduplicate(df, column, threshold=65):
 
 
 def process_file(uploaded_file):
+    
     df = pd.read_excel(uploaded_file, sheet_name='Публикации')
     
     original_news_count = len(df)
@@ -162,8 +163,75 @@ def process_file(uploaded_file):
     
     return df
 
+def create_output_file(df):
+    # Create a new Excel writer object
+    output = io.BytesIO()
+    writer = pd.ExcelWriter(output, engine='openpyxl')
+    
+    # Load the sample file to copy its structure
+    sample_wb = load_workbook("sample_file.xlsx")
+    
+    # Process data for 'Сводка' sheet
+    entities = df['Объект'].unique()
+    summary_data = []
+    for entity in entities:
+        entity_df = df[df['Объект'] == entity]
+        total_news = len(entity_df)
+        negative_news = sum((entity_df['FinBERT'] == 'Negative') | 
+                            (entity_df['RoBERTa'] == 'Negative') | 
+                            (entity_df['FinBERT-Tone'] == 'Negative'))
+        positive_news = sum((entity_df['FinBERT'] == 'Positive') | 
+                            (entity_df['RoBERTa'] == 'Positive') | 
+                            (entity_df['FinBERT-Tone'] == 'Positive'))
+        summary_data.append([entity, total_news, negative_news, positive_news])
+    
+    summary_df = pd.DataFrame(summary_data, columns=['Объект', 'Всего новостей', 'Отрицательные', 'Положительные'])
+    summary_df = summary_df.sort_values('Отрицательные', ascending=False)
+    
+    # Write 'Сводка' sheet
+    if 'Сводка' in sample_wb.sheetnames:
+        writer.book['Сводка'] = sample_wb['Сводка']
+    summary_df.to_excel(writer, sheet_name='Сводка', startrow=3, startcol=4, index=False, header=False)
+    
+    # Process data for 'Значимые' and 'Анализ' sheets
+    significant_data = []
+    analysis_data = []
+    for _, row in df.iterrows():
+        if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
+            sentiment = 'Negative' if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']) else 'Positive'
+            significant_data.append([row['Объект'], sentiment, row['Заголовок'], row['Выдержки из текста']])
+        
+        if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
+            analysis_data.append([row['Объект'], 'РИСК УБЫТКА', row['Заголовок'], row['Выдержки из текста']])
+    
+    # Write 'Значимые' sheet
+    if 'Значимые' in sample_wb.sheetnames:
+        writer.book['Значимые'] = sample_wb['Значимые']
+    significant_df = pd.DataFrame(significant_data, columns=['Объект', 'Окраска', 'Заголовок', 'Текст'])
+    significant_df.to_excel(writer, sheet_name='Значимые', startrow=2, startcol=2, index=False)
+    
+    # Write 'Анализ' sheet
+    if 'Анализ' in sample_wb.sheetnames:
+        writer.book['Анализ'] = sample_wb['Анализ']
+    analysis_df = pd.DataFrame(analysis_data, columns=['Объект', 'Тип риска', 'Заголовок', 'Текст'])
+    analysis_df.to_excel(writer, sheet_name='Анализ', startrow=3, startcol=4, index=False)
+    
+    # Copy 'Публикации' sheet from original file
+    if 'Публикации' in sample_wb.sheetnames:
+        writer.book['Публикации'] = sample_wb['Публикации']
+    df.to_excel(writer, sheet_name='Публикации', index=False)
+    
+    # Add 'Тех.приложение' sheet
+    df.to_excel(writer, sheet_name='Тех.приложение', index=False)
+    
+    writer.save()
+    output.seek(0)
+    
+    return output
+
+
 def main():
-    st.title("... приступим к анализу... версия 30")
+    st.title("... приступим к анализу... версия 31+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
@@ -177,7 +245,7 @@ def main():
         fig, axs = plt.subplots(2, 2, figsize=(12, 8))
         fig.suptitle("Распределение окраски по моделям")
         
-        models = ['ruBERT1', 'ruBERT2','FinBERT', 'RoBERTa', 'FinBERT-Tone']
+        models = ['ruBERT2','FinBERT', 'RoBERTa', 'FinBERT-Tone']
         for i, model in enumerate(models):
             ax = axs[i // 2, i % 2]
             sentiment_counts = df[model].value_counts()
@@ -190,16 +258,12 @@ def main():
         st.pyplot(fig)
         
         # Offer download of results
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
-        output.seek(0)
+        output = create_output_file(df)
         st.download_button(
-            label="Хотите загрузить результат? Вот он",
+            label="Скачать результат анализа новостей",
             data=output,
-            file_name="sentiment_analysis_results.xlsx",
+            file_name="результат_анализа_новостей.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
 if __name__ == "__main__":
     main()
