@@ -72,11 +72,11 @@ def get_mapped_sentiment(result):
     return "Neutral"
 
 def get_rubert1_sentiment(text):
-    result = rubert(text, truncation=True, max_length=512)[0]
+    result = rubert1(text, truncation=True, max_length=512)[0]
     return get_mapped_sentiment(result)
 
 def get_rubert2_sentiment(text):
-    result = rubert(text, truncation=True, max_length=512)[0]
+    result = rubert2(text, truncation=True, max_length=512)[0]
     return get_mapped_sentiment(result)
 
 def get_finbert_sentiment(text):
@@ -159,7 +159,7 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 25")
+    st.title("... приступим к анализу... версия 26")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
