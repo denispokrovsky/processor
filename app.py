@@ -132,9 +132,9 @@ def process_file(uploaded_file):
 
     texts = df['Выдержки из текста'].tolist()
 
-    for text in df['Выдержки из текста']:
+    for text in df['Выдержки из текста']: 
         lemmatized_texts.append(lemmatize_text(text))
-
+    
     for i, text in enumerate(lemmatized_texts):
         translated_text = translate(str(text))
         translated_texts.append(translated_text)
@@ -163,7 +163,7 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 28")
+    st.title("... приступим к анализу... версия 30")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
