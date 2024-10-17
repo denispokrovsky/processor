@@ -135,7 +135,7 @@ def process_file(uploaded_file):
         translated_text = translate(str(lemmatize_text(text)))
         translated_texts.append(translated_text)
         progress_bar.progress((i + 1) / len(df))
-        progress_text.text(f"{i + 1} из {total_news} сообщений переведено")
+        progress_text.text(f"{i + 1} из {total_news} сообщений предобработано")
     
     # Perform sentiment analysis
     rubert1_results = [get_rubert1_sentiment(text) for text in texts]
@@ -159,7 +159,7 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 24")
+    st.title("... приступим к анализу... версия 25")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
@@ -173,7 +173,7 @@ def main():
         fig, axs = plt.subplots(2, 2, figsize=(12, 8))
         fig.suptitle("Распределение окраски по моделям")
         
-        models = ['ruBERT', 'FinBERT', 'RoBERTa', 'FinBERT-Tone']
+        models = ['ruBERT1', 'ruBERT2','FinBERT', 'RoBERTa', 'FinBERT-Tone']
         for i, model in enumerate(models):
             ax = axs[i // 2, i % 2]
             sentiment_counts = df[model].value_counts()
