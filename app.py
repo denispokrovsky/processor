@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import time
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
-from transformers import MarianMTModel, MarianTokenizer
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+#from transformers import MarianMTModel, MarianTokenizer
 import matplotlib.pyplot as plt
 from pymystem3 import Mystem
 import io
@@ -25,13 +25,13 @@ def lemmatize_text(text):
 
 # Translation model for Russian to English
 model_name = "Helsinki-NLP/opus-mt-ru-en"
-translation_tokenizer = MarianTokenizer.from_pretrained(model_name)
-translation_model = MarianMTModel.from_pretrained(model_name)
+translation_tokenizer = AutoTokenizer.from_pretrained(model_name)
+translation_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+
+translator = pipeline("translation", model="Helsinki-NLP/opus-mt-ru-en")
 
 def translate(text):
-    inputs = translation_tokenizer(text, return_tensors="pt", truncation=True)
-    translated_tokens = translation_model.generate(**inputs)
-    return translation_tokenizer.decode(translated_tokens[0], skip_special_tokens=True)
+    return translator(text)[0]['translation_text']
 
 # Function for VADER sentiment analysis with label mapping
 def get_vader_sentiment(text):
@@ -111,19 +111,19 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("Sentiment Analysis App")
+    st.title("... приступим к анализу...")
     
-    uploaded_file = st.file_uploader("Choose an Excel file", type="xlsx")
+    uploaded_file = st.file_uploader("ВЫБИРАЙТЕ EXCEL-файл", type="xlsx")
     
     if uploaded_file is not None:
         df = process_file(uploaded_file)
         
-        st.subheader("Data Preview")
+        st.subheader("Предпросмотр данных")
         st.write(df.head())
         
-        st.subheader("Sentiment Distribution")
+        st.subheader("Распределение окраски")
         fig, axs = plt.subplots(2, 2, figsize=(12, 8))
-        fig.suptitle("Sentiment Distribution for Each Model")
+        fig.suptitle("Распределение окраски по моделям")
         
         models = ['VADER', 'FinBERT', 'RoBERTa', 'FinBERT-Tone']
         for i, model in enumerate(models):
@@ -143,7 +143,7 @@ def main():
             df.to_excel(writer, index=False)
         output.seek(0)
         st.download_button(
-            label="Download results as Excel",
+            label="Хотите загрузить результат? Вот он",
             data=output,
             file_name="sentiment_analysis_results.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
