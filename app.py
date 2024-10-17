@@ -42,30 +42,37 @@ def translate(text):
     inputs = translation_tokenizer(text, return_tensors="pt", truncation=True)
     
     # Calculate max_length based on input length (you may need to adjust this ratio)
-    max_length = min(512, int(inputs.input_ids.shape[1] * 1.5))
+    input_length = inputs.input_ids.shape[1]
+    max_length = min(512, int(input_length * 1.5))
     
-    # Calculate max_new_tokens
-    max_new_tokens = max_length - inputs.input_ids.shape[1]
+    # Estimate total translation time (adjust this based on your observations)
+    estimated_time = input_length * 0.1  # 0.1 seconds per input token, adjust as needed
     
     # Set up the progress bar
-    pbar = tqdm(total=max_new_tokens, desc="Translating", unit="token")
+    pbar = tqdm(total=100, desc="Translating", unit="%")
     
-    # Custom callback to update the progress bar
-    def update_progress_bar(beam_idx, token_idx, token):
-        pbar.update(1)
+    start_time = time.time()
     
-    # Generate translation with progress updates
+    # Generate translation
     translated_tokens = translation_model.generate(
         **inputs,
         max_length=max_length,
         num_beams=5,
         no_repeat_ngram_size=2,
-        early_stopping=True,
-        callback=update_progress_bar,
-        callback_steps=1
+        early_stopping=True
     )
     
-    # Close the progress bar
+    # Update progress bar based on elapsed time
+    while time.time() - start_time < estimated_time:
+        elapsed = time.time() - start_time
+        progress = min(int((elapsed / estimated_time) * 100), 99)
+        pbar.n = progress
+        pbar.refresh()
+        time.sleep(0.1)
+    
+    # Ensure the progress bar reaches 100%
+    pbar.n = 100
+    pbar.refresh()
     pbar.close()
     
     # Decode the translated tokens
@@ -125,7 +132,8 @@ def process_file(uploaded_file):
 
 
     # Apply fuzzy deduplication
-    df = df.groupby('Объект', group_keys=False).apply(lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)).reset_index(drop=True)
+    df = df.groupby('Объект').apply(lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65), include_groups=False).reset_index(drop=True)
+    
         
     # Translate texts
     translated_texts = []
@@ -154,7 +162,7 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу...")
+    st.title("... приступим к анализу... версия 15")
     
     uploaded_file = st.file_uploader("ВЫБИРАЙТЕ EXCEL-файл", type="xlsx")
     
