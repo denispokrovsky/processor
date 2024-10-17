@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 #from transformers import MarianMTModel, MarianTokenizer
 import matplotlib.pyplot as plt
 from pymystem3 import Mystem
@@ -41,16 +41,13 @@ def translate(text):
     # Tokenize the input text
     inputs = translation_tokenizer(text, return_tensors="pt", truncation=True)
     
-    # Get the number of tokens in the input
-    input_length = inputs.input_ids.shape[1]
-    
     # Set up a simple spinner
     with tqdm(total=0, bar_format='{desc}', desc="Translating...") as pbar:
         # Generate translation
         translated_tokens = translation_model.generate(
             **inputs,
             num_beams=5,
-            max_length=input_length * 2,  # Adjust as needed
+            max_length=len(text.split()) * 2,  # Adjust as needed
             no_repeat_ngram_size=2,
             early_stopping=True
         )
@@ -112,9 +109,11 @@ def fuzzy_deduplicate(df, column, threshold=65):
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Публикации')
     
+
+
     # Apply fuzzy deduplication
-    df = df.groupby('Объект').apply(lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)).reset_index(drop=True)
-    
+    df = df.groupby('Объект', group_keys=False).apply(lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)).reset_index(drop=True)
+        
     # Translate texts
     translated_texts = []
     progress_bar = st.progress(0)

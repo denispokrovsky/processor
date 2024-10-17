@@ -3,8 +3,10 @@ pandas
 vaderSentiment
 transformers>=4.30.0
 torch
+tqdm
 sentencepiece
 pymystem3
 openpyxl
 rapidfuzz
 matplotlib
+sacremoses
