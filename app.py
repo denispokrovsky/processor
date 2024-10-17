@@ -139,7 +139,7 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 15")
+    st.title("... приступим к анализу... версия 16")
     
     uploaded_file = st.file_uploader("ВЫБИРАЙТЕ EXCEL-файл", type="xlsx")
     
