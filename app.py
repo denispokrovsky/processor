@@ -41,19 +41,32 @@ def translate(text):
     # Tokenize the input text
     inputs = translation_tokenizer(text, return_tensors="pt", truncation=True)
     
-    # Set up a simple spinner
-    with tqdm(total=0, bar_format='{desc}', desc="Translating...") as pbar:
-        # Generate translation
-        translated_tokens = translation_model.generate(
-            **inputs,
-            num_beams=5,
-            max_length=len(text.split()) * 2,  # Adjust as needed
-            no_repeat_ngram_size=2,
-            early_stopping=True
-        )
-        
-        # Update the spinner description to show completion
-        pbar.set_description_str("Translation completed")
+    # Calculate max_length based on input length (you may need to adjust this ratio)
+    max_length = min(512, int(inputs.input_ids.shape[1] * 1.5))
+    
+    # Calculate max_new_tokens
+    max_new_tokens = max_length - inputs.input_ids.shape[1]
+    
+    # Set up the progress bar
+    pbar = tqdm(total=max_new_tokens, desc="Translating", unit="token")
+    
+    # Custom callback to update the progress bar
+    def update_progress_bar(beam_idx, token_idx, token):
+        pbar.update(1)
+    
+    # Generate translation with progress updates
+    translated_tokens = translation_model.generate(
+        **inputs,
+        max_length=max_length,
+        num_beams=5,
+        no_repeat_ngram_size=2,
+        early_stopping=True,
+        callback=update_progress_bar,
+        callback_steps=1
+    )
+    
+    # Close the progress bar
+    pbar.close()
     
     # Decode the translated tokens
     translated_text = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)[0]
