@@ -238,7 +238,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 33+")
+    st.title("... приступим к анализу... версия 34+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
