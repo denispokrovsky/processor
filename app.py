@@ -16,10 +16,11 @@ import torch
 mystem = Mystem()
 
 # Set up the sentiment analyzers
-vader_analyzer = SentimentIntensityAnalyzer()
+
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
 roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
 finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
+sberubert = pipeline("sentiment-analysis", model = "ai-forever/ruBert-base")
 
 # Function for lemmatizing Russian text
 def lemmatize_text(text):
@@ -59,16 +60,6 @@ def translate(text):
     return translated_text
 
 
-
-# Function for VADER sentiment analysis with label mapping
-def get_vader_sentiment(text):
-    score = vader_analyzer.polarity_scores(text)["compound"]
-    if score > 0.2:
-        return "Positive"
-    elif score < -0.2:
-        return "Negative"
-    return "Neutral"
-
 # Functions for FinBERT, RoBERTa, and FinBERT-Tone with label mapping
 def get_mapped_sentiment(result):
     label = result['label'].lower()
@@ -77,6 +68,11 @@ def get_mapped_sentiment(result):
     elif label in ["negative", "label_0", "neg", "neg_label"]:
         return "Negative"
     return "Neutral"
+
+def get_sberubert_sentiment(text):
+    result = sberubert(text, truncation=True, max_length=512)[0]
+    return get_mapped_sentiment(result)
+
 
 def get_finbert_sentiment(text):
     result = finbert(text, truncation=True, max_length=512)[0]
@@ -135,26 +131,26 @@ def process_file(uploaded_file):
         progress_text.text(f"{i + 1} из {total_news} сообщений переведено")
     
     # Perform sentiment analysis
-    vader_results = [get_vader_sentiment(text) for text in translated_texts]
+    rubert_results = [get_sberubert_sentiment(text) for text in translated_texts]
     finbert_results = [get_finbert_sentiment(text) for text in translated_texts]
     roberta_results = [get_roberta_sentiment(text) for text in translated_texts]
     finbert_tone_results = [get_finbert_tone_sentiment(text) for text in translated_texts]
     
     # Add results to DataFrame
-    df['VADER'] = vader_results
+    df['ruBERT'] = rubert_results
     df['FinBERT'] = finbert_results
     df['RoBERTa'] = roberta_results
     df['FinBERT-Tone'] = finbert_tone_results
     df['Translated']
     
     # Reorder columns
-    columns_order = ['Объект', 'VADER', 'FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста', 'Translated' ]
+    columns_order = ['Объект', 'ruBERT', 'FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста', 'Translated' ]
     df = df[columns_order]
     
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 20")
+    st.title("... приступим к анализу... версия 21")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
@@ -168,7 +164,7 @@ def main():
         fig, axs = plt.subplots(2, 2, figsize=(12, 8))
         fig.suptitle("Распределение окраски по моделям")
         
-        models = ['VADER', 'FinBERT', 'RoBERTa', 'FinBERT-Tone']
+        models = ['ruBERT', 'FinBERT', 'RoBERTa', 'FinBERT-Tone']
         for i, model in enumerate(models):
             ax = axs[i // 2, i % 2]
             sentiment_counts = df[model].value_counts()
