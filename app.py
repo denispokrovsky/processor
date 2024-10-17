@@ -124,6 +124,8 @@ def process_file(uploaded_file):
     progress_text = st.empty()
     total_news = len(df)
 
+    texts = df['Выдержки из текста'].tolist()
+
     for i, text in enumerate(df['Выдержки из текста']):
         translated_text = translate(str(lemmatize_text(text)))
         translated_texts.append(translated_text)
@@ -131,7 +133,7 @@ def process_file(uploaded_file):
         progress_text.text(f"{i + 1} из {total_news} сообщений переведено")
     
     # Perform sentiment analysis
-    rubert_results = [get_sberubert_sentiment(text) for text in translated_texts]
+    rubert_results = [get_sberubert_sentiment(text) for text in texts]
     finbert_results = [get_finbert_sentiment(text) for text in translated_texts]
     roberta_results = [get_roberta_sentiment(text) for text in translated_texts]
     finbert_tone_results = [get_finbert_tone_sentiment(text) for text in translated_texts]
@@ -150,7 +152,7 @@ def process_file(uploaded_file):
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 22")
+    st.title("... приступим к анализу... версия 23")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
