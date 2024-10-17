@@ -112,7 +112,14 @@ def process_file(uploaded_file):
     df = df.groupby('Объект').apply(
         lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
     ).reset_index(drop=True)
-          
+
+    original_news_count = len(pre_df)
+    remaining_news_count = len(df)
+    duplicates_removed = original_news_count - remaining_news_count
+
+    st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
+
+
     # Translate texts
     translated_texts = []
     progress_bar = st.progress(0)
@@ -120,7 +127,7 @@ def process_file(uploaded_file):
     total_news = len(df)
 
     for i, text in enumerate(df['Выдержки из текста']):
-        translated_text = translate(str(text))
+        translated_text = translate(str(lemmatize_text(text)))
         translated_texts.append(translated_text)
         progress_bar.progress((i + 1) / len(df))
         progress_text.text(f"{i + 1} из {total_news} сообщений переведено")
@@ -136,15 +143,16 @@ def process_file(uploaded_file):
     df['FinBERT'] = finbert_results
     df['RoBERTa'] = roberta_results
     df['FinBERT-Tone'] = finbert_tone_results
+    df['Translated']
     
     # Reorder columns
-    columns_order = ['Объект', 'VADER', 'FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста']
+    columns_order = ['Объект', 'VADER', 'FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста', 'Translated' ]
     df = df[columns_order]
     
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 19")
+    st.title("... приступим к анализу... версия 20")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
