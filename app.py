@@ -142,14 +142,14 @@ def process_file(uploaded_file):
         progress_text.text(f"{i + 1} из {total_news} сообщений предобработано")
     
     # Perform sentiment analysis
-    rubert1_results = [get_rubert1_sentiment(text) for text in texts]
+    #rubert1_results = [get_rubert1_sentiment(text) for text in texts]
     rubert2_results = [get_rubert2_sentiment(text) for text in texts]
     finbert_results = [get_finbert_sentiment(text) for text in translated_texts]
     roberta_results = [get_roberta_sentiment(text) for text in translated_texts]
     finbert_tone_results = [get_finbert_tone_sentiment(text) for text in translated_texts]
     
     # Add results to DataFrame
-    df['ruBERT1'] = rubert1_results
+    #df['ruBERT1'] = rubert1_results
     df['ruBERT2'] = rubert2_results
     df['FinBERT'] = finbert_results
     df['RoBERTa'] = roberta_results
@@ -157,13 +157,13 @@ def process_file(uploaded_file):
     df['Translated'] = translated_texts
     
     # Reorder columns
-    columns_order = ['Объект', 'ruBERT1', 'ruBERT2','FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста', 'Translated' ]
+    columns_order = ['Объект', 'ruBERT2','FinBERT', 'RoBERTa', 'FinBERT-Tone', 'Выдержки из текста', 'Translated' ]
     df = df[columns_order]
     
     return df
 
 def main():
-    st.title("... приступим к анализу... версия 27")
+    st.title("... приступим к анализу... версия 28")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
