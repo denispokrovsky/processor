@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 from pymystem3 import Mystem
 import io
 from rapidfuzz import fuzz
-from tqdm import tqdm
+from tqdm.auto import tqdm
+import time
 import torch
 
 # Initialize pymystem3 for lemmatization
@@ -43,38 +44,25 @@ def translate(text):
     # Get the number of tokens in the input
     input_length = inputs.input_ids.shape[1]
     
-    # Estimate the maximum length of the output
-    max_length = input_length * 2  # This is an estimate, adjust as needed
-    
-    # Set up the progress bar
-    progress_bar = tqdm(total=100, desc="Translating", unit="%")
-    
-    # Generate translation
-    start_time = time.time()
-    translated_tokens = translation_model.generate(
-        **inputs,
-        num_beams=5,
-        max_length=max_length,
-        no_repeat_ngram_size=2,
-        early_stopping=True
-    )
-    
-    # Estimate progress based on time
-    while not translated_tokens.size(1):
-        elapsed_time = time.time() - start_time
-        estimated_progress = min(int((elapsed_time / (input_length * 0.1)) * 100), 99)
-        progress_bar.n = estimated_progress
-        progress_bar.refresh()
-        time.sleep(0.1)
-    
-    # Ensure the progress bar reaches 100%
-    progress_bar.n = 100
-    progress_bar.refresh()
-    progress_bar.close()
+    # Set up a simple spinner
+    with tqdm(total=0, bar_format='{desc}', desc="Translating...") as pbar:
+        # Generate translation
+        translated_tokens = translation_model.generate(
+            **inputs,
+            num_beams=5,
+            max_length=input_length * 2,  # Adjust as needed
+            no_repeat_ngram_size=2,
+            early_stopping=True
+        )
+        
+        # Update the spinner description to show completion
+        pbar.set_description_str("Translation completed")
     
     # Decode the translated tokens
     translated_text = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)[0]
     return translated_text
+
+
 
 # Function for VADER sentiment analysis with label mapping
 def get_vader_sentiment(text):
