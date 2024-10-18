@@ -13,6 +13,7 @@ import torch
 from openpyxl import load_workbook
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
+from sentiment_decorators import sentiment_analysis_decorator
 
 # Initialize pymystem3 for lemmatization
 mystem = Mystem()
@@ -85,22 +86,27 @@ def get_mapped_sentiment(result):
         return "Negative"
     return "Neutral"
 
+@sentiment_analysis_decorator
 def get_rubert1_sentiment(text):
     result = rubert1(text, truncation=True, max_length=512)[0]
     return get_mapped_sentiment(result)
 
+@sentiment_analysis_decorator
 def get_rubert2_sentiment(text):
     result = rubert2(text, truncation=True, max_length=512)[0]
     return get_mapped_sentiment(result)
 
+@sentiment_analysis_decorator
 def get_finbert_sentiment(text):
     result = finbert(text, truncation=True, max_length=512)[0]
     return get_mapped_sentiment(result)
 
+@sentiment_analysis_decorator
 def get_roberta_sentiment(text):
     result = roberta(text, truncation=True, max_length=512)[0]
     return get_mapped_sentiment(result)
 
+@sentiment_analysis_decorator
 def get_finbert_tone_sentiment(text):
     result = finbert_tone(text, truncation=True, max_length=512)[0]
     return get_mapped_sentiment(result)
@@ -149,7 +155,9 @@ def process_file(uploaded_file):
     total_news = len(df)
 
     texts = df['Выдержки из текста'].tolist()
-
+    # Data validation
+    texts = [str(text) if not pd.isna(text) else "" for text in texts]
+    
     for text in df['Выдержки из текста']: 
         lemmatized_texts.append(lemmatize_text(text))
     
@@ -249,7 +257,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 41+")
+    st.title("... приступим к анализу... версия 42+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
