@@ -46,7 +46,7 @@ def init_langchain_llm():
 
     def llama_wrapper(prompt):
         messages = [
-            {"role": "system", "content": "You are a helpful AI assistant that analyzes news and estimates their impact."},
+            {"role": "system", "content": "You are an experienced credit analyst that analyzes news and estimates their short-term or mid-term impact on profitability or risk of loss of the entity present in the news."},
             {"role": "user", "content": prompt},
         ]
         result = pipeline(messages, max_new_tokens=256)
@@ -55,24 +55,32 @@ def init_langchain_llm():
     llm = HuggingFacePipeline(pipeline=llama_wrapper)
     return llm
 
-def estimate_impact(llm, news_text):
+def estimate_impact(llm, news_text, entity):
     template = """
-    Analyze the following news piece and estimate its monetary impact in Russian rubles for the next 6 months. 
-    If a monetary estimate is not possible, categorize the impact as "Значительный", "Незначительный", or "Неопределенный".
+    Analyze the following news piece about the entity "{entity}" and estimate its monetary impact in Russian rubles for this entity in the next 6 months. You should estimate the risk of loss or probability of profit.
+    
+    If a precise monetary estimate is not possible, categorize the impact as one of the following:
+    1. "Значительный риск убытков" (Significant risk of loss)
+    2. "Умеренный риск убытков" (Moderate risk of loss)
+    3. "Незначительный риск убытков" (Minor risk of loss)
+    4. "Вероятность прибыли" (Probability of profit)
+    5. "Неопределенный эффект" (Uncertain effect)
+
     Also provide a short reasoning (max 100 words) for your assessment.
 
+    Entity: {entity}
     News: {news}
 
     Your response should be in the following format:
     Estimated Impact: [Your estimate or category]
     Reasoning: [Your reasoning]
     """
-    prompt = PromptTemplate(template=template, input_variables=["news"])
+    prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
     chain = LLMChain(llm=llm, prompt=prompt)
-    response = chain.run(news=news_text)
+    response = chain.run(entity=entity, news=news_text)
     
     # Parse the response
-    impact = "Неопределенный"
+    impact = "Неопределенный эффект"
     reasoning = "Не удалось получить обоснование"
     
     if "Estimated Impact:" in response and "Reasoning:" in response:
@@ -100,6 +108,7 @@ def process_file_with_llm(df, llm):
             df.at[index, 'LLM_Impact'] = impact
             df.at[index, 'LLM_Reasoning'] = reasoning
     # Display each LLM response
+            t.write(f"Объект: {row['Объект']}")
             st.write(f"Новость: {row['Заголовок']}")
             st.write(f"Эффект: {impact}")
             st.write(f"Обоснование: {reasoning}")
@@ -418,7 +427,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 49")
+    st.title("... приступим к анализу... версия 50")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
