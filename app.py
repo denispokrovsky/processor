@@ -174,11 +174,8 @@ def process_file(uploaded_file):
     return processed_df
 
 def create_output_file(df, uploaded_file, analysis_df):
-    # Create a new workbook
-    wb = Workbook()
-    
-    # Remove the default sheet created by openpyxl
-    wb.remove(wb.active)
+    # Load the sample file to use as a template
+    wb = load_workbook("sample_file.xlsx")
     
     # Process data for 'Сводка' sheet
     entities = df['Объект'].unique()
@@ -198,9 +195,10 @@ def create_output_file(df, uploaded_file, analysis_df):
     summary_df = summary_df.sort_values('Отрицательные', ascending=False)
     
     # Write 'Сводка' sheet
-    ws = wb.create_sheet('Сводка')
-    for r in dataframe_to_rows(summary_df, index=False, header=False):
-        ws.append(r)
+    ws = wb['Сводка']
+    for r_idx, row in enumerate(dataframe_to_rows(summary_df, index=False, header=False), start=4):
+        for c_idx, value in enumerate(row, start=5):
+            ws.cell(row=r_idx, column=c_idx, value=value)
     
     # Process data for 'Значимые' sheet
     significant_data = []
@@ -210,26 +208,31 @@ def create_output_file(df, uploaded_file, analysis_df):
             significant_data.append([row['Объект'], sentiment, row['Заголовок'], row['Выдержки из текста']])
     
     # Write 'Значимые' sheet
-    significant_df = pd.DataFrame(significant_data, columns=['Объект', 'Окраска', 'Заголовок', 'Текст'])
-    ws = wb.create_sheet('Значимые')
-    for r in dataframe_to_rows(significant_df, index=False, header=True):
-        ws.append(r)
+    ws = wb['Значимые']
+    for r_idx, row in enumerate(significant_data, start=3):
+        for c_idx, value in enumerate(row, start=3):
+            ws.cell(row=r_idx, column=c_idx, value=value)
     
     # Write 'Анализ' sheet
-    ws = wb.create_sheet('Анализ')
-    for r in dataframe_to_rows(analysis_df, index=False, header=True):
-        ws.append(r)
+    ws = wb['Анализ']
+    for r_idx, row in enumerate(dataframe_to_rows(analysis_df, index=False, header=False), start=4):
+        for c_idx, value in enumerate(row, start=5):
+            ws.cell(row=r_idx, column=c_idx, value=value)
     
     # Copy 'Публикации' sheet from original uploaded file
     original_df = pd.read_excel(uploaded_file, sheet_name='Публикации')
-    ws = wb.create_sheet('Публикации')
-    for r in dataframe_to_rows(original_df, index=False, header=True):
-        ws.append(r)
+    ws = wb['Публикации']
+    for r_idx, row in enumerate(dataframe_to_rows(original_df, index=False, header=True), start=1):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
     
     # Add 'Тех.приложение' sheet with processed data
-    ws = wb.create_sheet('Тех.приложение')
-    for r in dataframe_to_rows(df, index=False, header=True):
-        ws.append(r)
+    if 'Тех.приложение' not in wb.sheetnames:
+        wb.create_sheet('Тех.приложение')
+    ws = wb['Тех.приложение']
+    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
     
     # Save the workbook to a BytesIO object
     output = io.BytesIO()
@@ -239,7 +242,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 36+")
+    st.title("... приступим к анализу... версия 37+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
