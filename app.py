@@ -14,6 +14,9 @@ from openpyxl import load_workbook
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from sentiment_decorators import sentiment_analysis_decorator
+from langchain.llms import HuggingFacePipeline
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
 
 # Initialize pymystem3 for lemmatization
 mystem = Mystem()
@@ -26,12 +29,112 @@ finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
 rubert1 = pipeline("sentiment-analysis", model = "DeepPavlov/rubert-base-cased")
 rubert2 = pipeline("sentiment-analysis", model = "blanchefort/rubert-base-cased-sentiment")
 
+def init_langchain_llm():
+    pipe = pipeline("text-generation", model="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
+    llm = HuggingFacePipeline(pipeline=pipe)
+    return llm
+
+# Function to estimate impact using LLM
+def estimate_impact(llm, news_text):
+    template = """
+    Analyze the following news piece and estimate its monetary impact in Russian rubles for the next 6 months. 
+    If a monetary estimate is not possible, categorize the impact as "Значительный", "Незначительный", or "Неопределенный".
+    Also provide a short reasoning (max 100 words) for your assessment.
+
+    News: {news}
+
+    Estimated Impact:
+    Reasoning:
+    """
+    prompt = PromptTemplate(template=template, input_variables=["news"])
+    chain = LLMChain(llm=llm, prompt=prompt)
+    response = chain.run(news=news_text)
+    
+    # Parse the response to extract impact and reasoning
+    # Parsing logic is very important! Might be needed to be changed
+    impact, reasoning = response.split("Reasoning:")
+    impact = impact.strip()
+    reasoning = reasoning.strip()
+    
+    return impact, reasoning
+
+def process_file_with_llm(uploaded_file, llm):
+    df = process_file(uploaded_file)
+    
+    # Add new columns for LLM analysis
+    df['LLM_Impact'] = ''
+    df['LLM_Reasoning'] = ''
+    
+    for index, row in df.iterrows():
+        if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
+            impact, reasoning = estimate_impact(llm, row['Выдержки из текста'])
+            df.at[index, 'LLM_Impact'] = impact
+            df.at[index, 'LLM_Reasoning'] = reasoning
+    
+    return df
+
+def create_output_file_with_llm(df, uploaded_file, analysis_df):
+    wb = load_workbook("sample_file.xlsx")
+    
+    # Update 'Сводка' sheet
+    summary_df = pd.DataFrame({
+        'Объект': df['Объект'].unique(),
+        'Всего новостей': df.groupby('Объект').size(),
+        'Отрицательные': df[df[['FinBERT', 'RoBERTa', 'FinBERT-Tone']].eq('Negative').any(axis=1)].groupby('Объект').size(),
+        'Положительные': df[df[['FinBERT', 'RoBERTa', 'FinBERT-Tone']].eq('Positive').any(axis=1)].groupby('Объект').size(),
+        'Impact': df.groupby('Объект')['LLM_Impact'].agg(lambda x: x.value_counts().index[0] if x.any() else 'Неопределенный')
+    })
+    ws = wb['Сводка']
+    for r_idx, row in enumerate(dataframe_to_rows(summary_df, index=False, header=False), start=4):
+        for c_idx, value in enumerate(row, start=5):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+    
+    # Update 'Значимые' sheet
+    significant_data = []
+    for _, row in df.iterrows():
+        if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
+            sentiment = 'Negative' if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']) else 'Positive'
+            significant_data.append([row['Объект'], 'релевантен', sentiment, row['LLM_Impact'], row['Заголовок'], row['Выдержки из текста']])
+    
+    ws = wb['Значимые']
+    for r_idx, row in enumerate(significant_data, start=3):
+        for c_idx, value in enumerate(row, start=3):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+    
+    # Update 'Анализ' sheet
+    analysis_df['LLM_Reasoning'] = df['LLM_Reasoning']
+    ws = wb['Анализ']
+    for r_idx, row in enumerate(dataframe_to_rows(analysis_df, index=False, header=False), start=4):
+        for c_idx, value in enumerate(row, start=5):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+    
+    # Copy 'Публикации' sheet from original uploaded file
+    original_df = pd.read_excel(uploaded_file, sheet_name='Публикации')
+    ws = wb['Публикации']
+    for r_idx, row in enumerate(dataframe_to_rows(original_df, index=False, header=True), start=1):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+    
+    # Add 'Тех.приложение' sheet with processed data
+    if 'Тех.приложение' not in wb.sheetnames:
+        wb.create_sheet('Тех.приложение')
+    ws = wb['Тех.приложение']
+    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+
+    
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
 def create_analysis_data(df):
     analysis_data = []
     for _, row in df.iterrows():
         if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
             analysis_data.append([row['Объект'], row['Заголовок'], 'РИСК УБЫТКА', '', row['Выдержки из текста']])
-    return pd.DataFrame(analysis_data, columns=['Объект', 'Заголовок', 'Признак', 'Материальность', 'Текст сообщения'])
+    return pd.DataFrame(analysis_data, columns=['Объект', 'Заголовок', 'Признак', 'Пояснение', 'Текст сообщения'])
 
 # Function for lemmatizing Russian text
 def lemmatize_text(text):
@@ -124,6 +227,20 @@ def fuzzy_deduplicate(df, column, threshold=65):
             seen_texts.append(text)
             indices_to_keep.append(i)
     return df.iloc[indices_to_keep]
+
+def format_elapsed_time(seconds):
+    hours, remainder = divmod(int(seconds), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    time_parts = []
+    if hours > 0:
+        time_parts.append(f"{hours} час{'ов' if hours != 1 else ''}")
+    if minutes > 0:
+        time_parts.append(f"{minutes} минут{'' if minutes == 1 else 'ы' if 2 <= minutes <= 4 else ''}")
+    if seconds > 0 or not time_parts:  # always show seconds if it's the only non-zero value
+        time_parts.append(f"{seconds} секунд{'а' if seconds == 1 else 'ы' if 2 <= seconds <= 4 else ''}")
+    
+    return " ".join(time_parts)
 
 
 def process_file(uploaded_file):
@@ -257,7 +374,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 43+")
+    st.title("... приступим к анализу... версия 44+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
@@ -292,7 +409,8 @@ def main():
         # Calculate elapsed time
         end_time = time.time()
         elapsed_time = end_time - start_time
-        st.success(f"Обработка завершена за {elapsed_time:.2f} секунд.")
+        formatted_time = format_elapsed_time(elapsed_time)
+        st.success(f"Обработка завершена за {formatted_time}.")
 
         # Offer download of results
 
@@ -302,5 +420,20 @@ def main():
             file_name="результат_анализа_новостей.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+        # Add button for LLM analysis
+        if st.button("Что скажет нейросеть?"):
+            st.info("Анализ нейросетью начался. Это может занять некоторое время...")
+            llm = init_langchain_llm()
+            df_with_llm = process_file_with_llm(uploaded_file, llm)
+            output_with_llm = create_output_file_with_llm(df_with_llm, uploaded_file, analysis_df)
+            st.success("Анализ нейросетью завершен!")
+            st.download_button(
+                label="Скачать результат анализа с оценкой нейросети",
+                data=output_with_llm,
+                file_name="результат_анализа_с_нейросетью.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
 if __name__ == "__main__":
     main()
