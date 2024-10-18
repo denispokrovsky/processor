@@ -30,7 +30,7 @@ def create_analysis_data(df):
     for _, row in df.iterrows():
         if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
             analysis_data.append([row['Объект'], row['Заголовок'], 'РИСК УБЫТКА', '', row['Выдержки из текста']])
-    return pd.DataFrame(analysis_data, columns=['Объект', 'Тип риска', 'Заголовок', 'Текст'])
+    return pd.DataFrame(analysis_data, columns=['Объект', 'Заголовок', 'Признак', 'Материальность', 'Текст сообщения'])
 
 # Function for lemmatizing Russian text
 def lemmatize_text(text):
@@ -243,7 +243,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 38+")
+    st.title("... приступим к анализу... версия 39+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
