@@ -12,3 +12,4 @@ matplotlib
 sacremoses
 langchain
 langchain-community
+transformers

@@ -14,6 +14,7 @@ from openpyxl import load_workbook
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from sentiment_decorators import sentiment_analysis_decorator
+import transformers
 from langchain_community.llms import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
@@ -417,7 +418,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 48")
+    st.title("... приступим к анализу... версия 49")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
