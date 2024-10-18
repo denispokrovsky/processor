@@ -54,18 +54,19 @@ translation_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
 translator = pipeline("translation", model="Helsinki-NLP/opus-mt-ru-en")
 
+
 def translate(text):
     # Tokenize the input text
     inputs = translation_tokenizer(text, return_tensors="pt", truncation=True)
     
-    # Calculate max_length based on input length (you may need to adjust this ratio)
+    # Calculate max_length based on input length
     input_length = inputs.input_ids.shape[1]
-    max_length = min(512, int(input_length * 1.5))
+    max_length = max(input_length + 10, int(input_length * 1.5))  # Ensure at least 10 new tokens
     
     # Generate translation
     translated_tokens = translation_model.generate(
         **inputs,
-        max_length=max_length,
+        max_new_tokens=max_length,  # Use max_new_tokens instead of max_length
         num_beams=5,
         no_repeat_ngram_size=2,
         early_stopping=True
@@ -74,7 +75,6 @@ def translate(text):
     # Decode the translated tokens
     translated_text = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)[0]
     return translated_text
-
 
 # Functions for FinBERT, RoBERTa, and FinBERT-Tone with label mapping
 def get_mapped_sentiment(result):
@@ -249,7 +249,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 40+")
+    st.title("... приступим к анализу... версия 41+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
