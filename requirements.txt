@@ -10,3 +10,4 @@ openpyxl
 rapidfuzz
 matplotlib
 sacremoses
+langchain
