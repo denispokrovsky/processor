@@ -11,3 +11,4 @@ rapidfuzz
 matplotlib
 sacremoses
 langchain
+langchain_community
