@@ -433,6 +433,7 @@ def main():
                 data=output_with_llm,
                 file_name="результат_анализа_с_нейросетью.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 
 if __name__ == "__main__":
