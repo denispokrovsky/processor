@@ -14,7 +14,7 @@ from openpyxl import load_workbook
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from sentiment_decorators import sentiment_analysis_decorator
-from langchain.llms import HuggingFacePipeline
+from langchain_community.llms import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 
@@ -64,12 +64,30 @@ def process_file_with_llm(df, llm):
     df['LLM_Impact'] = ''
     df['LLM_Reasoning'] = ''
     
+    # Create a progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    total_rows = len(df)
+    rows_to_process = df[df[['FinBERT', 'RoBERTa', 'FinBERT-Tone']].isin(['Negative', 'Positive']).any(axis=1)]
+    
+
     for index, row in df.iterrows():
         if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
             impact, reasoning = estimate_impact(llm, row['Translated'])  # Use translated text
             df.at[index, 'LLM_Impact'] = impact
             df.at[index, 'LLM_Reasoning'] = reasoning
     
+    # Update progress
+        progress = (index + 1) / total_rows
+        progress_bar.progress(progress)
+        status_text.text(f"Проанализировано {index + 1} из {total_rows} новостей")
+    
+    # Clear the progress bar and status text
+    progress_bar.empty()
+    status_text.empty()
+
+
     return df
 
 def create_output_file_with_llm(df, uploaded_file, analysis_df):
@@ -372,7 +390,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 46")
+    st.title("... приступим к анализу... версия 47")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
