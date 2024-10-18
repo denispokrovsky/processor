@@ -34,12 +34,18 @@ def create_analysis_data(df):
 
 # Function for lemmatizing Russian text
 def lemmatize_text(text):
+    if pd.isna(text):
+        return ""
+    
+    if not isinstance(text, str):
+        text = str(text)
+    
     words = text.split()
     lemmatized_words = []
     for word in tqdm(words, desc="Lemmatizing", unit="word"):
         lemmatized_word = ''.join(mystem.lemmatize(word))
         lemmatized_words.append(lemmatized_word)
-    return ' '.join(lemmatized_words)
+    return ' '.join(lemmatized_words)    
 
 # Translation model for Russian to English
 model_name = "Helsinki-NLP/opus-mt-ru-en"
@@ -243,7 +249,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 39+")
+    st.title("... приступим к анализу... версия 40+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
