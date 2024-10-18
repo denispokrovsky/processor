@@ -257,11 +257,13 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 42+")
+    st.title("... приступим к анализу... версия 43+")
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
     if uploaded_file is not None:
+        start_time = time.time()
+        
         df = process_file(uploaded_file)
         
         st.subheader("Предпросмотр данных")
@@ -285,10 +287,15 @@ def main():
         analysis_df = create_analysis_data(df)
         st.subheader("Анализ")
         st.dataframe(analysis_df)
-
+        output = create_output_file(df, uploaded_file, analysis_df)     
+        
+        # Calculate elapsed time
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        st.success(f"Обработка завершена за {elapsed_time:.2f} секунд.")
 
         # Offer download of results
-        output = create_output_file(df, uploaded_file, analysis_df)
+
         st.download_button(
             label="Скачать результат анализа новостей",
             data=output,
