@@ -29,7 +29,7 @@ def create_analysis_data(df):
     analysis_data = []
     for _, row in df.iterrows():
         if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
-            analysis_data.append([row['Объект'], 'РИСК УБЫТКА', row['Заголовок'], row['Выдержки из текста']])
+            analysis_data.append([row['Объект'], row['Заголовок'], 'РИСК УБЫТКА', '', row['Выдержки из текста']])
     return pd.DataFrame(analysis_data, columns=['Объект', 'Тип риска', 'Заголовок', 'Текст'])
 
 # Function for lemmatizing Russian text
@@ -201,11 +201,12 @@ def create_output_file(df, uploaded_file, analysis_df):
             ws.cell(row=r_idx, column=c_idx, value=value)
     
     # Process data for 'Значимые' sheet
+    
     significant_data = []
     for _, row in df.iterrows():
         if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
             sentiment = 'Negative' if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']) else 'Positive'
-            significant_data.append([row['Объект'], sentiment, row['Заголовок'], row['Выдержки из текста']])
+            significant_data.append([row['Объект'], '', sentiment, '', row['Заголовок'], row['Выдержки из текста']])
     
     # Write 'Значимые' sheet
     ws = wb['Значимые']
