@@ -35,8 +35,23 @@ def init_langchain_llm():
     return llm
 
 def init_langchain_llm():
-    pipe = pipeline("text-generation", model="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
-    llm = HuggingFacePipeline(pipeline=pipe)
+    model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+    pipeline = transformers.pipeline(
+        "text-generation",
+        model=model_id,
+        model_kwargs={"torch_dtype": torch.bfloat16},
+        device_map="auto",
+    )
+
+    def llama_wrapper(prompt):
+        messages = [
+            {"role": "system", "content": "You are a helpful AI assistant that analyzes news and estimates their impact."},
+            {"role": "user", "content": prompt},
+        ]
+        result = pipeline(messages, max_new_tokens=256)
+        return result[0]["generated_text"]
+    
+    llm = HuggingFacePipeline(pipeline=llama_wrapper)
     return llm
 
 def estimate_impact(llm, news_text):
@@ -47,16 +62,22 @@ def estimate_impact(llm, news_text):
 
     News: {news}
 
-    Estimated Impact:
-    Reasoning:
+    Your response should be in the following format:
+    Estimated Impact: [Your estimate or category]
+    Reasoning: [Your reasoning]
     """
     prompt = PromptTemplate(template=template, input_variables=["news"])
     chain = LLMChain(llm=llm, prompt=prompt)
     response = chain.run(news=news_text)
     
-    impact, reasoning = response.split("Reasoning:")
-    impact = impact.strip()
-    reasoning = reasoning.strip()
+    # Parse the response
+    impact = "Неопределенный"
+    reasoning = "Не удалось получить обоснование"
+    
+    if "Estimated Impact:" in response and "Reasoning:" in response:
+        impact_part, reasoning_part = response.split("Reasoning:")
+        impact = impact_part.split("Estimated Impact:")[1].strip()
+        reasoning = reasoning_part.strip()
     
     return impact, reasoning
 
@@ -77,7 +98,13 @@ def process_file_with_llm(df, llm):
             impact, reasoning = estimate_impact(llm, row['Translated'])  # Use translated text
             df.at[index, 'LLM_Impact'] = impact
             df.at[index, 'LLM_Reasoning'] = reasoning
-    
+    # Display each LLM response
+            st.write(f"Новость: {row['Заголовок']}")
+            st.write(f"Эффект: {impact}")
+            st.write(f"Обоснование: {reasoning}")
+            st.write("---")  # Add a separator between responses
+
+
     # Update progress
         progress = (index + 1) / total_rows
         progress_bar.progress(progress)
@@ -390,7 +417,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 47")
+    st.title("... приступим к анализу... версия 48")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
