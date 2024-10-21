@@ -39,7 +39,7 @@ def init_langchain_llm():
         st.error("Hugging Face token not found in Streamlit secrets. Please add it to access the model.")
         st.stop()
 
-    model_id = "meta-llama/Llama-2-7b-chat-hf"  # or "meta-llama/Meta-Llama-3.1-8B-Instruct" if you have access
+    model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
     
     try:
         tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
@@ -439,7 +439,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 52")
+    st.title("... приступим к анализу... версия 53")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
