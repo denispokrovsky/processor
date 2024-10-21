@@ -20,6 +20,10 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from huggingface_hub import login
 from accelerate import init_empty_weights
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # Initialize pymystem3 for lemmatization
@@ -33,7 +37,45 @@ finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
 rubert1 = pipeline("sentiment-analysis", model = "DeepPavlov/rubert-base-cased")
 rubert2 = pipeline("sentiment-analysis", model = "blanchefort/rubert-base-cased-sentiment")
 
+
+
+def authenticate_huggingface():
+    # Try to get the token from environment variable first
+    hf_token = os.environ.get('HF_TOKEN')
+    
+    # If not in environment, try Streamlit secrets
+    if not hf_token and 'hf_token' in st.secrets:
+        hf_token = st.secrets['hf_token']
+    
+    if hf_token:
+        login(token=hf_token)
+        return True
+    else:
+        st.error("Hugging Face token not found. Please set HF_TOKEN environment variable or add it to Streamlit secrets.")
+        return False
+    
+@st.cache_resource
+def load_model(model_id):
+    tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        model_id,
+        torch_dtype=torch.float16,
+        device_map="cpu",
+        low_cpu_mem_usage=True
+    )
+    return tokenizer, model
+
+
+
 def init_langchain_llm():
+    
+    if not authenticate_huggingface():
+        st.stop()
+    
+    try:
+        model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+        tokenizer, model = load_model(model_id)
+
     # Authenticate using the token from Streamlit secrets
     if 'hf_token' in st.secrets:
         login(token=st.secrets['hf_token'])
@@ -72,8 +114,10 @@ def init_langchain_llm():
         
         llm = HuggingFacePipeline(pipeline=llama_wrapper)
         return llm
+   
     except Exception as e:
-        st.error(f"Error initializing the model: {str(e)}")
+        logger.error(f"Error loading model: {str(e)}", exc_info=True)
+        st.error(f"Failed to load model: {str(e)}")
         st.stop()
 
 def estimate_impact(llm, news_text, entity):
@@ -448,7 +492,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 54")
+    st.title("... приступим к анализу... версия 55")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
