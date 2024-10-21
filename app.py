@@ -22,6 +22,43 @@ from huggingface_hub import login
 from accelerate import init_empty_weights
 import logging
 import os
+from transformers import MarianMTModel, MarianTokenizer
+
+class TranslationModel:
+    def __init__(self, model_name="Helsinki-NLP/opus-mt-ru-en"):
+        self.tokenizer = MarianTokenizer.from_pretrained(model_name)
+        self.model = MarianMTModel.from_pretrained(model_name)
+        if torch.cuda.is_available():
+            self.model = self.model.to('cuda')
+
+    def translate(self, text):
+        inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
+        if torch.cuda.is_available():
+            inputs = {k: v.to('cuda') for k, v in inputs.items()}
+        
+        with torch.no_grad():
+            translated = self.model.generate(**inputs)
+        
+        return self.tokenizer.decode(translated[0], skip_special_tokens=True)
+    
+
+def batch_translate(texts, batch_size=32):
+    translator = TranslationModel()
+    translated_texts = []
+    
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        translations = [translator.translate(text) for text in batch]
+        translated_texts.extend(translations)
+        
+        # Update progress
+        progress = (i + len(batch)) / len(texts)
+        st.progress(progress)
+        st.text(f"Переведено {i + len(batch)} из {len(texts)} текстов")
+    
+    return translated_texts
+
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -69,62 +106,24 @@ def load_model(model_id):
 
 
 def init_langchain_llm():
+    model_id = "gpt2"  # Using the publicly available GPT-2 model
+    tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
+    model = transformers.AutoModelForCausalLM.from_pretrained(model_id)
     
-    if not authenticate_huggingface():
-        st.stop()
+    pipeline = transformers.pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        torch_dtype=torch.float32,
+        device_map="auto",
+    )
     
-    try:
-        model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-        tokenizer, model = load_model(model_id)
-
-    except Exception as e:
-        logger.error(f"Error loading model: {str(e)}", exc_info=True)
-        st.error(f"Failed to load model: {str(e)}")
-        st.stop()
-
-    # Authenticate using the token from Streamlit secrets
-    if 'hf_token' in st.secrets:
-        login(token=st.secrets['hf_token'])
-    else:
-        st.error("Hugging Face token not found in Streamlit secrets. Please add it to access the model.")
-        st.stop()
-
-    model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+    def gpt2_wrapper(prompt):
+        result = pipeline(prompt, max_new_tokens=256, do_sample=True, temperature=0.7)
+        return result[0]['generated_text']
     
-    try:
-        tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
-        
-        # Use Accelerate for efficient model loading
-        with init_empty_weights():
-            config = transformers.AutoConfig.from_pretrained(model_id)
-            model = transformers.AutoModelForCausalLM.from_config(config)
-        
-        model = model.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16,
-            device_map="auto",
-            low_cpu_mem_usage=True
-        )
-        
-        pipeline = transformers.pipeline(
-            "text-generation",
-            model=model,
-            tokenizer=tokenizer,
-            torch_dtype=torch.float16,
-            device_map="auto",
-        )
-        
-        def llama_wrapper(prompt):
-            result = pipeline(prompt, max_new_tokens=256, do_sample=True, temperature=0.7)
-            return result[0]['generated_text']
-        
-        llm = HuggingFacePipeline(pipeline=llama_wrapper)
-        return llm
-   
-    except Exception as e:
-        logger.error(f"Error loading model: {str(e)}", exc_info=True)
-        st.error(f"Failed to load model: {str(e)}")
-        st.stop()
+    llm = HuggingFacePipeline(pipeline=gpt2_wrapper)
+    return llm
 
 
 def estimate_impact(llm, news_text, entity):
@@ -395,6 +394,8 @@ def process_file(uploaded_file):
     progress_bar = st.progress(0)
     progress_text = st.empty()
     total_news = len(df)
+    
+    st.write("Начинаем предобработку текстов...")
 
     texts = df['Выдержки из текста'].tolist()
     # Data validation
@@ -403,12 +404,16 @@ def process_file(uploaded_file):
     for text in df['Выдержки из текста']: 
         lemmatized_texts.append(lemmatize_text(text))
     
-    for i, text in enumerate(lemmatized_texts):
-        translated_text = translate(str(text))
-        translated_texts.append(translated_text)
-        progress_bar.progress((i + 1) / len(df))
-        progress_text.text(f"{i + 1} из {total_news} сообщений предобработано")
+    #for i, text in enumerate(lemmatized_texts):
+    #    translated_text = translate(str(text))
+    #    translated_texts.append(translated_text)
+    #    progress_bar.progress((i + 1) / len(df))
+    #   progress_text.text(f"{i + 1} из {total_news} сообщений предобработано")
     
+    translated_texts = batch_translate(lemmatized_texts)
+    df['Translated'] = translated_texts
+
+
     # Perform sentiment analysis
     rubert2_results = [get_rubert2_sentiment(text) for text in texts]
     finbert_results = [get_finbert_sentiment(text) for text in translated_texts]
@@ -499,7 +504,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 58")
+    st.title("... приступим к анализу... версия 59")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
