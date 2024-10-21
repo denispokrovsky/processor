@@ -492,7 +492,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 55")
+    st.title("... приступим к анализу... версия 56")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
