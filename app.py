@@ -510,7 +510,7 @@ def generate_sentiment_visualization(df):
 
 
 def main():
-    st.title("... приступим к анализу... версия 69")
+    st.title("... приступим к анализу... версия 70")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
