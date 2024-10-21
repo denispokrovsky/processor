@@ -12,4 +12,4 @@ matplotlib
 sacremoses
 langchain
 langchain-community
-transformers
+huggingface_hub

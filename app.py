@@ -31,29 +31,40 @@ rubert1 = pipeline("sentiment-analysis", model = "DeepPavlov/rubert-base-cased")
 rubert2 = pipeline("sentiment-analysis", model = "blanchefort/rubert-base-cased-sentiment")
 
 def init_langchain_llm():
-    pipe = pipeline("text-generation", model="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
-    llm = HuggingFacePipeline(pipeline=pipe)
-    return llm
+    # Authenticate using the token from Streamlit secrets
+    if 'hf_token' in st.secrets:
+        login(token=st.secrets['hf_token'])
+    else:
+        st.error("Hugging Face token not found in Streamlit secrets. Please add it to access the model.")
+        st.stop()
 
-def init_langchain_llm():
-    model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-    pipeline = transformers.pipeline(
-        "text-generation",
-        model=model_id,
-        model_kwargs={"torch_dtype": torch.bfloat16},
-        device_map="auto",
-    )
-
-    def llama_wrapper(prompt):
-        messages = [
-            {"role": "system", "content": "You are an experienced credit analyst that analyzes news and estimates their short-term or mid-term impact on profitability or risk of loss of the entity present in the news."},
-            {"role": "user", "content": prompt},
-        ]
-        result = pipeline(messages, max_new_tokens=256)
-        return result[0]["generated_text"]
+    model_id = "meta-llama/Llama-2-7b-chat-hf"  # or "meta-llama/Meta-Llama-3.1-8B-Instruct" if you have access
     
-    llm = HuggingFacePipeline(pipeline=llama_wrapper)
-    return llm
+    try:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
+        model = transformers.AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16,
+            device_map="auto",
+        )
+        
+        pipeline = transformers.pipeline(
+            "text-generation",
+            model=model,
+            tokenizer=tokenizer,
+            torch_dtype=torch.float16,
+            device_map="auto",
+        )
+        
+        def llama_wrapper(prompt):
+            result = pipeline(prompt, max_new_tokens=256, do_sample=True, temperature=0.7)
+            return result[0]['generated_text']
+        
+        llm = HuggingFacePipeline(pipeline=llama_wrapper)
+        return llm
+    except Exception as e:
+        st.error(f"Error initializing the model: {str(e)}")
+        st.stop()
 
 def estimate_impact(llm, news_text, entity):
     template = """
@@ -427,7 +438,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 50")
+    st.title("... приступим к анализу... версия 51")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
