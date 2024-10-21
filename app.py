@@ -18,6 +18,7 @@ import transformers
 from langchain_community.llms import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
+from huggingface_hub import login
 
 # Initialize pymystem3 for lemmatization
 mystem = Mystem()
@@ -438,7 +439,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 51")
+    st.title("... приступим к анализу... версия 52")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
