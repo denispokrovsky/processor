@@ -76,6 +76,11 @@ def init_langchain_llm():
         model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
         tokenizer, model = load_model(model_id)
 
+    except Exception as e:
+        logger.error(f"Error loading model: {str(e)}", exc_info=True)
+        st.error(f"Failed to load model: {str(e)}")
+        st.stop()
+
     # Authenticate using the token from Streamlit secrets
     if 'hf_token' in st.secrets:
         login(token=st.secrets['hf_token'])
@@ -119,6 +124,7 @@ def init_langchain_llm():
         logger.error(f"Error loading model: {str(e)}", exc_info=True)
         st.error(f"Failed to load model: {str(e)}")
         st.stop()
+
 
 def estimate_impact(llm, news_text, entity):
     template = """
@@ -492,7 +498,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 56")
+    st.title("... приступим к анализу... версия 57")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
