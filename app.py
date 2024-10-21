@@ -175,7 +175,7 @@ def process_file_with_llm(df, llm):
 
     for index, row in df.iterrows():
         if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
-            impact, reasoning = estimate_impact(llm, row['Translated'])  # Use translated text
+            impact, reasoning = estimate_impact(llm, row['Translated'], row['Объект'])  # Use translated text
             df.at[index, 'LLM_Impact'] = impact
             df.at[index, 'LLM_Reasoning'] = reasoning
     # Display each LLM response
@@ -504,7 +504,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 59")
+    st.title("... приступим к анализу... версия 60")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
