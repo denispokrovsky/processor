@@ -13,3 +13,4 @@ sacremoses
 langchain
 langchain-community
 huggingface_hub
+accelerate>=0.26.0
