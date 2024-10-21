@@ -18,6 +18,7 @@ import transformers
 from langchain_community.llms import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
+from langchain_core.runnables import RunnablePassthrough
 from huggingface_hub import login
 from accelerate import init_empty_weights
 import logging
@@ -54,7 +55,7 @@ def batch_translate(texts, batch_size=32):
         # Update progress
         progress = (i + len(batch)) / len(texts)
         st.progress(progress)
-        st.text(f"Переведено {i + len(batch)} из {len(texts)} текстов")
+        st.text(f"Предобработано {i + len(batch)} из {len(texts)} текстов")
     
     return translated_texts
 
@@ -147,14 +148,14 @@ def estimate_impact(llm, news_text, entity):
     Reasoning: [Your reasoning]
     """
     prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
-    chain = LLMChain(llm=llm, prompt=prompt)
-    response = chain.run(entity=entity, news=news_text)
+    chain = prompt | llm | RunnablePassthrough()
+    response = chain.invoke({"entity": entity, "news": news_text})
     
     # Parse the response
     impact = "Неопределенный эффект"
     reasoning = "Не удалось получить обоснование"
     
-    if "Estimated Impact:" in response and "Reasoning:" in response:
+    if isinstance(response, str) and "Estimated Impact:" in response and "Reasoning:" in response:
         impact_part, reasoning_part = response.split("Reasoning:")
         impact = impact_part.split("Estimated Impact:")[1].strip()
         reasoning = reasoning_part.strip()
@@ -504,7 +505,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 60")
+    st.title("... приступим к анализу... версия 61")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
