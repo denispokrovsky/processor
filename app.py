@@ -23,8 +23,9 @@ from huggingface_hub import login
 from accelerate import init_empty_weights
 import logging
 import os
+import openai
 from transformers import MarianMTModel, MarianTokenizer
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 
 
 class TranslationModel:
@@ -493,7 +494,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 66")
+    st.title("... приступим к анализу... версия 67")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
