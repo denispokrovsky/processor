@@ -21,6 +21,7 @@ from langchain.chains import LLMChain
 from huggingface_hub import login
 from accelerate import init_empty_weights
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -498,7 +499,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 57")
+    st.title("... приступим к анализу... версия 58")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
