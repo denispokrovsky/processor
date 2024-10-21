@@ -19,6 +19,8 @@ from langchain_community.llms import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from huggingface_hub import login
+from accelerate import init_empty_weights
+
 
 # Initialize pymystem3 for lemmatization
 mystem = Mystem()
@@ -43,10 +45,17 @@ def init_langchain_llm():
     
     try:
         tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
-        model = transformers.AutoModelForCausalLM.from_pretrained(
+        
+        # Use Accelerate for efficient model loading
+        with init_empty_weights():
+            config = transformers.AutoConfig.from_pretrained(model_id)
+            model = transformers.AutoModelForCausalLM.from_config(config)
+        
+        model = model.from_pretrained(
             model_id,
             torch_dtype=torch.float16,
             device_map="auto",
+            low_cpu_mem_usage=True
         )
         
         pipeline = transformers.pipeline(
@@ -439,7 +448,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 53")
+    st.title("... приступим к анализу... версия 54")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
