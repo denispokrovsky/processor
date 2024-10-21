@@ -24,6 +24,8 @@ from accelerate import init_empty_weights
 import logging
 import os
 from transformers import MarianMTModel, MarianTokenizer
+from langchain.chat_models import ChatOpenAI
+
 
 class TranslationModel:
     def __init__(self, model_name="Helsinki-NLP/opus-mt-ru-en"):
@@ -78,20 +80,6 @@ rubert2 = pipeline("sentiment-analysis", model = "blanchefort/rubert-base-cased-
 
 
 
-def authenticate_huggingface():
-    # Try to get the token from environment variable first
-    hf_token = os.environ.get('HF_TOKEN')
-    
-    # If not in environment, try Streamlit secrets
-    if not hf_token and 'hf_token' in st.secrets:
-        hf_token = st.secrets['hf_token']
-    
-    if hf_token:
-        login(token=hf_token)
-        return True
-    else:
-        st.error("Hugging Face token not found. Please set HF_TOKEN environment variable or add it to Streamlit secrets.")
-        return False
     
 @st.cache_resource
 def load_model(model_id):
@@ -107,24 +95,24 @@ def load_model(model_id):
 
 
 def init_langchain_llm():
-    model_id = "gpt2"  # Using the publicly available GPT-2 model
-    tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
-    model = transformers.AutoModelForCausalLM.from_pretrained(model_id)
-    
-    pipeline = transformers.pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        torch_dtype=torch.float32,
-        device_map="auto",
-    )
-    
-    def gpt2_wrapper(prompt):
-        result = pipeline(prompt, max_new_tokens=256, do_sample=True, temperature=0.7)
-        return result[0]['generated_text']
-    
-    llm = HuggingFacePipeline(pipeline=gpt2_wrapper)
-    return llm
+    try:
+        # Try to get the Groq API key from Hugging Face secrets
+        if 'groq_key' in st.secrets:
+            groq_api_key = st.secrets['groq_key']
+        else:
+            st.error("Groq API key not found in Hugging Face secrets. Please add it with the key 'groq_key'.")
+            st.stop()
+
+        llm = ChatOpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            model="llama-3.1-70b-versatile",
+            api_key=groq_api_key,
+            temperature=0.0
+        )
+        return llm
+    except Exception as e:
+        st.error(f"Error initializing the Groq LLM: {str(e)}")
+        st.stop()
 
 
 def estimate_impact(llm, news_text, entity):
@@ -505,7 +493,7 @@ def create_output_file(df, uploaded_file, analysis_df):
     return output
 
 def main():
-    st.title("... приступим к анализу... версия 61")
+    st.title("... приступим к анализу... версия 66")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
@@ -563,11 +551,14 @@ def main():
         if st.button("Что скажет нейросеть?"):
             st.info("Анализ нейросетью начался. Это может занять некоторое время...")
             llm = init_langchain_llm()
-            df_with_llm = process_file_with_llm(st.session_state.processed_df, llm)
-            output_with_llm = create_output_file_with_llm(df_with_llm, uploaded_file, st.session_state.analysis_df)
-            st.success("Анализ нейросетью завершен!")
-            st.session_state.llm_analyzed = True
-            st.session_state.output_with_llm = output_with_llm
+            if llm:
+                df_with_llm = process_file_with_llm(st.session_state.processed_df, llm)
+                output_with_llm = create_output_file_with_llm(df_with_llm, uploaded_file, st.session_state.analysis_df)
+                st.success("Анализ нейросетью завершен!")
+                st.session_state.llm_analyzed = True
+                st.session_state.output_with_llm = output_with_llm
+            else:
+                st.error("Не удалось инициализировать нейросеть. Пожалуйста, проверьте настройки и попробуйте снова.")
 
     if st.session_state.llm_analyzed:
         st.download_button(
