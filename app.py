@@ -8,7 +8,6 @@ from pymystem3 import Mystem
 import io
 from rapidfuzz import fuzz
 from tqdm.auto import tqdm
-import time
 import torch
 from openpyxl import load_workbook
 from openpyxl import Workbook
@@ -26,7 +25,8 @@ import os
 import openai
 from transformers import MarianMTModel, MarianTokenizer
 from langchain_community.chat_models import ChatOpenAI
-
+from wordcloud import WordCloud
+from collections import Counter
 
 class TranslationModel:
     def __init__(self, model_name="Helsinki-NLP/opus-mt-ru-en"):
@@ -151,42 +151,7 @@ def estimate_impact(llm, news_text, entity):
     
     return impact, reasoning
 
-def process_file_with_llm(df, llm):
-    df['LLM_Impact'] = ''
-    df['LLM_Reasoning'] = ''
-    
-    # Create a progress bar
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    total_rows = len(df)
-    rows_to_process = df[df[['FinBERT', 'RoBERTa', 'FinBERT-Tone']].isin(['Negative', 'Positive']).any(axis=1)]
-    
 
-    for index, row in df.iterrows():
-        if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
-            impact, reasoning = estimate_impact(llm, row['Translated'], row['Объект'])  # Use translated text
-            df.at[index, 'LLM_Impact'] = impact
-            df.at[index, 'LLM_Reasoning'] = reasoning
-    # Display each LLM response
-            t.write(f"Объект: {row['Объект']}")
-            st.write(f"Новость: {row['Заголовок']}")
-            st.write(f"Эффект: {impact}")
-            st.write(f"Обоснование: {reasoning}")
-            st.write("---")  # Add a separator between responses
-
-
-    # Update progress
-        progress = (index + 1) / total_rows
-        progress_bar.progress(progress)
-        status_text.text(f"Проанализировано {index + 1} из {total_rows} новостей")
-    
-    # Clear the progress bar and status text
-    progress_bar.empty()
-    status_text.empty()
-
-
-    return df
 
 def create_output_file_with_llm(df, uploaded_file, analysis_df):
     wb = load_workbook("sample_file.xlsx")
@@ -378,51 +343,57 @@ def process_file(uploaded_file):
 
     st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
 
-    # Translate texts
-    translated_texts = []
-    lemmatized_texts = []
-    progress_bar = st.progress(0)
-    progress_text = st.empty()
-    total_news = len(df)
-    
-    st.write("Начинаем предобработку текстов...")
+    st.write("Начинаем предобработку и анализ текстов...")
 
     texts = df['Выдержки из текста'].tolist()
-    # Data validation
     texts = [str(text) if not pd.isna(text) else "" for text in texts]
     
-    for text in df['Выдержки из текста']: 
-        lemmatized_texts.append(lemmatize_text(text))
-    
-    #for i, text in enumerate(lemmatized_texts):
-    #    translated_text = translate(str(text))
-    #    translated_texts.append(translated_text)
-    #    progress_bar.progress((i + 1) / len(df))
-    #   progress_text.text(f"{i + 1} из {total_news} сообщений предобработано")
-    
+    lemmatized_texts = [lemmatize_text(text) for text in texts]
     translated_texts = batch_translate(lemmatized_texts)
     df['Translated'] = translated_texts
 
-
     # Perform sentiment analysis
-    rubert2_results = [get_rubert2_sentiment(text) for text in texts]
-    finbert_results = [get_finbert_sentiment(text) for text in translated_texts]
-    roberta_results = [get_roberta_sentiment(text) for text in translated_texts]
-    finbert_tone_results = [get_finbert_tone_sentiment(text) for text in translated_texts]
+    df['ruBERT2'] = [get_rubert2_sentiment(text) for text in texts]
+    df['FinBERT'] = [get_finbert_sentiment(text) for text in translated_texts]
+    df['RoBERTa'] = [get_roberta_sentiment(text) for text in translated_texts]
+    df['FinBERT-Tone'] = [get_finbert_tone_sentiment(text) for text in translated_texts]
+
+    # Initialize LLM
+    llm = init_langchain_llm()
+    if not llm:
+        st.error("Не удалось инициализировать нейросеть. Пожалуйста, проверьте настройки и попробуйте снова.")
+        st.stop()
+
+    # Perform LLM analysis
+    df['LLM_Impact'] = ''
+    df['LLM_Reasoning'] = ''
     
-    # Create a new DataFrame with processed data
-    processed_df = pd.DataFrame({
-        'Объект': df['Объект'],
-        'Заголовок': df['Заголовок'],  # Preserve original 'Заголовок'
-        'ruBERT2': rubert2_results,
-        'FinBERT': finbert_results,
-        'RoBERTa': roberta_results,
-        'FinBERT-Tone': finbert_tone_results,
-        'Выдержки из текста': df['Выдержки из текста'],
-        'Translated': translated_texts
-    })
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     
-    return processed_df
+    for index, row in df.iterrows():
+        if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
+            impact, reasoning = estimate_impact(llm, row['Translated'], row['Объект'])
+            df.at[index, 'LLM_Impact'] = impact
+            df.at[index, 'LLM_Reasoning'] = reasoning
+            
+            st.write(f"Объект: {row['Объект']}")
+            st.write(f"Новость: {row['Заголовок']}")
+            st.write(f"Эффект: {impact}")
+            st.write(f"Обоснование: {reasoning}")
+            st.write("---")
+
+        progress = (index + 1) / len(df)
+        progress_bar.progress(progress)
+        status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
+    
+    progress_bar.empty()
+    status_text.empty()
+
+    word_cloud_plot = generate_word_cloud(df)
+    st.pyplot(word_cloud_plot)
+
+    return df
 
 def create_output_file(df, uploaded_file, analysis_df):
     # Load the sample file to use as a template
@@ -493,16 +464,31 @@ def create_output_file(df, uploaded_file, analysis_df):
     
     return output
 
+def generate_word_cloud(df):
+    # Filter for negative sentiments
+    negative_df = df[df[['FinBERT', 'RoBERTa', 'FinBERT-Tone']].eq('Negative').any(axis=1)]
+    
+    # Combine entity names with their frequency of negative mentions
+    entity_counts = Counter(negative_df['Объект'])
+    
+    # Create and generate a word cloud image
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(entity_counts)
+    
+    # Display the generated image
+    plt.figure(figsize=(10, 5))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis('off')
+    plt.title('Облако слов: Объекты с негативными упоминаниями')
+    return plt
+
+
 def main():
-    st.title("... приступим к анализу... версия 67")
+    st.title("... приступим к анализу... версия 69")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
-    if 'analysis_df' not in st.session_state:
-        st.session_state.analysis_df = None
-    if 'llm_analyzed' not in st.session_state:
-        st.session_state.llm_analyzed = False
+
     
     uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
@@ -510,61 +496,24 @@ def main():
         start_time = time.time()
         
         st.session_state.processed_df = process_file(uploaded_file)
-        st.session_state.analysis_df = create_analysis_data(st.session_state.processed_df)
         
         st.subheader("Предпросмотр данных")
         st.write(st.session_state.processed_df.head())
-        
-        st.subheader("Распределение окраски")
-        fig, axs = plt.subplots(2, 2, figsize=(12, 8))
-        fig.suptitle("Распределение окраски по моделям")
-        
-        models = ['ruBERT2','FinBERT', 'RoBERTa', 'FinBERT-Tone']
-        for i, model in enumerate(models):
-            ax = axs[i // 2, i % 2]
-            sentiment_counts = st.session_state.processed_df[model].value_counts()
-            sentiment_counts.plot(kind='bar', ax=ax)
-            ax.set_title(f"{model} Sentiment")
-            ax.set_xlabel("Sentiment")
-            ax.set_ylabel("Count")
-        
-        plt.tight_layout()
-        st.pyplot(fig)
-        
+               
+        analysis_df = create_analysis_data(st.session_state.processed_df)
         st.subheader("Анализ")
-        st.dataframe(st.session_state.analysis_df)
+        st.dataframe(analysis_df)
         
-        output = create_output_file(st.session_state.processed_df, uploaded_file, st.session_state.analysis_df)     
+        output = create_output_file_with_llm(st.session_state.processed_df, uploaded_file, analysis_df)
         
         end_time = time.time()
         elapsed_time = end_time - start_time
         formatted_time = format_elapsed_time(elapsed_time)
-        st.success(f"Обработка завершена за {formatted_time}.")
+        st.success(f"Обработка и анализ завершены за {formatted_time}.")
 
         st.download_button(
-            label="Скачать результат анализа новостей",
+            label="Скачать результат анализа новостей с оценкой нейросети",
             data=output,
-            file_name="результат_анализа_новостей.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    if st.session_state.processed_df is not None and not st.session_state.llm_analyzed:
-        if st.button("Что скажет нейросеть?"):
-            st.info("Анализ нейросетью начался. Это может занять некоторое время...")
-            llm = init_langchain_llm()
-            if llm:
-                df_with_llm = process_file_with_llm(st.session_state.processed_df, llm)
-                output_with_llm = create_output_file_with_llm(df_with_llm, uploaded_file, st.session_state.analysis_df)
-                st.success("Анализ нейросетью завершен!")
-                st.session_state.llm_analyzed = True
-                st.session_state.output_with_llm = output_with_llm
-            else:
-                st.error("Не удалось инициализировать нейросеть. Пожалуйста, проверьте настройки и попробуйте снова.")
-
-    if st.session_state.llm_analyzed:
-        st.download_button(
-            label="Скачать результат анализа с оценкой нейросети",
-            data=st.session_state.output_with_llm,
             file_name="результат_анализа_с_нейросетью.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
