@@ -390,8 +390,9 @@ def process_file(uploaded_file):
     progress_bar.empty()
     status_text.empty()
 
-    word_cloud_plot = generate_word_cloud(df)
-    st.pyplot(word_cloud_plot)
+    visualization = generate_sentiment_visualization(df)
+    if visualization:
+        st.pyplot(visualization)
 
     return df
 
@@ -464,22 +465,48 @@ def create_output_file(df, uploaded_file, analysis_df):
     
     return output
 
-def generate_word_cloud(df):
+def generate_sentiment_visualization(df):
     # Filter for negative sentiments
     negative_df = df[df[['FinBERT', 'RoBERTa', 'FinBERT-Tone']].eq('Negative').any(axis=1)]
     
-    # Combine entity names with their frequency of negative mentions
-    entity_counts = Counter(negative_df['Объект'])
+    if negative_df.empty:
+        st.warning("Не обнаружено негативных упоминаний. Отображаем общую статистику по объектам.")
+        entity_counts = df['Объект'].value_counts()
+    else:
+        entity_counts = negative_df['Объект'].value_counts()
     
-    # Create and generate a word cloud image
+    if len(entity_counts) == 0:
+        st.warning("Нет данных для визуализации.")
+        return None
+    
+    if len(entity_counts) == 1:
+        st.warning("Обнаружен только один объект. Отображаем статистику в виде столбчатой диаграммы.")
+        fig, ax = plt.subplots()
+        entity_counts.plot(kind='bar', ax=ax)
+        ax.set_title('Количество упоминаний объекта')
+        ax.set_ylabel('Количество упоминаний')
+        plt.tight_layout()
+        return fig
+    
+    if len(entity_counts) <= 5:
+        st.info("Обнаружено малое количество объектов. Отображаем статистику в виде столбчатой диаграммы.")
+        fig, ax = plt.subplots(figsize=(10, 5))
+        entity_counts.plot(kind='bar', ax=ax)
+        ax.set_title('Количество упоминаний объектов')
+        ax.set_ylabel('Количество упоминаний')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        return fig
+    
+    # If we have enough data, create a word cloud
     wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(entity_counts)
     
-    # Display the generated image
-    plt.figure(figsize=(10, 5))
-    plt.imshow(wordcloud, interpolation='bilinear')
-    plt.axis('off')
-    plt.title('Облако слов: Объекты с негативными упоминаниями')
-    return plt
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.imshow(wordcloud, interpolation='bilinear')
+    ax.axis('off')
+    ax.set_title('Облако слов: Объекты с негативными упоминаниями' if not negative_df.empty else 'Облако слов: Все упоминания объектов')
+    
+    return fig
 
 
 def main():
