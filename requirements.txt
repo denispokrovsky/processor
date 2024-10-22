@@ -16,4 +16,4 @@ huggingface_hub
 accelerate>=0.26.0
 openai
 wordcloud
-fpdf2 = 2.7.8
+fpdf2 == 2.7.8
