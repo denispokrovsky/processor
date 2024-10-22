@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import matplotlib.pyplot as plt
+from openpyxl.utils.dataframe import dataframe_to_rows
 import io
 from rapidfuzz import fuzz
 import os
@@ -44,36 +45,39 @@ def init_langchain_llm():
 
 def estimate_sentiment_and_impact(llm, news_text, entity):
     template = """
-    Проанализируйте следующую новость об объекте "{entity}" и определите:
-    1. Тональность новости (Позитивная/Негативная/Нейтральная)
-    2. Оцените потенциальное финансовое влияние в рублях для этого объекта в ближайшие 6 месяцев.
+    First, translate this Russian text into English:
+    "{news}"
     
-    Если точную денежную оценку дать невозможно, категоризируйте влияние как одно из следующих:
-    1. "Значительный риск убытков" 
-    2. "Умеренный риск убытков"
-    3. "Незначительный риск убытков"
-    4. "Вероятность прибыли"
-    5. "Неопределенный эффект"
+    Then, analyze the translated text about the entity "{entity}" and determine:
+    1. Sentiment (Positive/Negative/Neutral)
+    2. Estimate potential financial impact in Russian rubles for this entity in the next 6 months.
+    
+    If precise monetary estimate is not possible, categorize the impact as one of the following:
+    1. "Significant risk of loss" 
+    2. "Moderate risk of loss"
+    3. "Minor risk of loss"
+    4. "Probability of profit"
+    5. "Uncertain effect"
 
-    Также предоставьте краткое обоснование (максимум 100 слов).
+    Provide a brief reasoning (maximum 100 words).
 
-    Новость: {news}
-
-    Ответ дайте в следующем формате:
+    Your response should be in the following format:
+    Translation: [Your English translation]
     Sentiment: [Positive/Negative/Neutral]
-    Impact: [Ваша оценка или категория]
-    Reasoning: [Ваше обоснование]
+    Impact: [Your estimate or category]
+    Reasoning: [Your reasoning]
     """
     prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
     chain = prompt | llm | RunnablePassthrough()
     response = chain.invoke({"entity": entity, "news": news_text})
     
     sentiment = "Neutral"
-    impact = "Неопределенный эффект"
-    reasoning = "Не удалось получить обоснование"
+    impact = "Uncertain effect"
+    reasoning = "Unable to provide reasoning"
     
     if isinstance(response, str):
         try:
+            # Extract sentiment
             if "Sentiment:" in response:
                 sentiment_part = response.split("Sentiment:")[1].split("\n")[0].strip().lower()
                 if "positive" in sentiment_part:
@@ -81,10 +85,26 @@ def estimate_sentiment_and_impact(llm, news_text, entity):
                 elif "negative" in sentiment_part:
                     sentiment = "Negative"
             
+            # Extract impact and reasoning
             if "Impact:" in response and "Reasoning:" in response:
                 impact_part, reasoning_part = response.split("Reasoning:")
                 impact = impact_part.split("Impact:")[1].strip()
                 reasoning = reasoning_part.strip()
+
+                # Translate impact categories back to Russian
+                impact_mapping = {
+                    "Significant risk of loss": "Значительный риск убытков",
+                    "Moderate risk of loss": "Умеренный риск убытков",
+                    "Minor risk of loss": "Незначительный риск убытков",
+                    "Probability of profit": "Вероятность прибыли",
+                    "Uncertain effect": "Неопределенный эффект"
+                }
+                
+                for eng, rus in impact_mapping.items():
+                    if eng.lower() in impact.lower():
+                        impact = rus
+                        break
+                
         except Exception as e:
             st.error(f"Error parsing LLM response: {str(e)}")
     
@@ -286,7 +306,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("... приступим к анализу... версия 75")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС :::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
