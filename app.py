@@ -15,31 +15,49 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from io import StringIO
+from io import StringIO, BytesIO
+import sys
 import contextlib
 
 
-@contextlib.contextmanager
-def capture_streamlit_output():
-    # Create StringIO object to capture output
-    output = StringIO()
-    with contextlib.redirect_stdout(output):
-        yield output
+class StreamlitOutputCapture:
+    def __init__(self):
+        self.output = []
 
-def save_to_pdf(output_text):
-    doc = SimpleDocTemplate("result.pdf", pagesize=letter)
-    styles = getSampleStyleSheet()
-    story = []
-    
-    # Split the captured output into lines
-    lines = output_text.getvalue().split('\n')
-    for line in lines:
-        if line.strip():  # Skip empty lines
-            p = Paragraph(line, styles['Normal'])
-            story.append(p)
-            story.append(Spacer(1, 12))  # Add space between paragraphs
-    
-    doc.build(story)
+    def write(self, text):
+        self.output.append(text)
+        
+    def getvalue(self):
+        return ''.join(self.output)
+
+    def flush(self):
+        pass
+
+def save_to_pdf(captured_output):
+    try:
+        # Create PDF document
+        doc = SimpleDocTemplate("result.pdf", pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Convert captured output to string and split into lines
+        output_text = captured_output.getvalue()
+        lines = output_text.split('\n')
+        
+        # Add each line to the PDF
+        for line in lines:
+            if line.strip():  # Skip empty lines
+                # Clean the line and handle any encoding issues
+                cleaned_line = line.encode('utf-8', errors='ignore').decode('utf-8')
+                p = Paragraph(cleaned_line, styles['Normal'])
+                story.append(p)
+                story.append(Spacer(1, 12))
+        
+        # Build the PDF
+        doc.build(story)
+        st.success("PDF файл 'result.pdf' успешно создан")
+    except Exception as e:
+        st.error(f"Ошибка при создании PDF: {str(e)}")
 
 # Initialize sentiment analyzers
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
@@ -193,78 +211,93 @@ def generate_sentiment_visualization(df):
     return fig
 
 def process_file(uploaded_file):
-    df = pd.read_excel(uploaded_file, sheet_name='Публикации')
     
-    required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
-    missing_columns = [col for col in required_columns if col not in df.columns]
-    if missing_columns:
-        st.error(f"Error: The following required columns are missing from the input file: {', '.join(missing_columns)}")
-        st.stop()
     
-    # Initialize LLM
-    llm = init_langchain_llm()
-    if not llm:
-        st.error("Не удалось инициализировать нейросеть. Пожалуйста, проверьте настройки и попробуйте снова.")
-        st.stop()
+    output_capture = StreamlitOutputCapture()
+    old_stdout = sys.stdout
+    sys.stdout = output_capture
 
-    # Deduplication
-    original_news_count = len(df)
-    df = df.groupby('Объект').apply(
-        lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
-    ).reset_index(drop=True)
-    
-    remaining_news_count = len(df)
-    duplicates_removed = original_news_count - remaining_news_count
-    st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
+    try:
+        df = pd.read_excel(uploaded_file, sheet_name='Публикации')
 
-    # Initialize progress
-    progress_bar = st.progress(0)
-    status_text = st.empty()
+        required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            st.error(f"Error: The following required columns are missing from the input file: {', '.join(missing_columns)}")
+            st.stop()
     
-    # Process each news item
-    df['Translated'] = ''
-    df['Sentiment'] = ''
-    df['Impact'] = ''
-    df['Reasoning'] = ''
+        # Initialize LLM
+        llm = init_langchain_llm()
+        if not llm:
+            st.error("Не удалось инициализировать нейросеть. Пожалуйста, проверьте настройки и попробуйте снова.")
+            st.stop()
+
+        # Deduplication
+        original_news_count = len(df)
+        df = df.groupby('Объект').apply(
+            lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
+        ).reset_index(drop=True)
     
-    for index, row in df.iterrows():
-        # First: Translate
-        translated_text = translate_text(llm, row['Выдержки из текста'])
-        df.at[index, 'Translated'] = translated_text
+        remaining_news_count = len(df)
+        duplicates_removed = original_news_count - remaining_news_count
+        st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
+
+        # Initialize progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+    
+        # Process each news item
+        df['Translated'] = ''
+        df['Sentiment'] = ''
+        df['Impact'] = ''
+        df['Reasoning'] = ''
+    
+        for index, row in df.iterrows():
+            # First: Translate
+            translated_text = translate_text(llm, row['Выдержки из текста'])
+            df.at[index, 'Translated'] = translated_text
         
-        # Second: Analyze sentiment
-        sentiment = analyze_sentiment(translated_text)
-        df.at[index, 'Sentiment'] = sentiment
+            # Second: Analyze sentiment
+            sentiment = analyze_sentiment(translated_text)
+            df.at[index, 'Sentiment'] = sentiment
         
-        # Third: If negative, estimate impact
-        if sentiment == "Negative":
-            impact, reasoning = estimate_impact(llm, translated_text, row['Объект'])
-            df.at[index, 'Impact'] = impact
-            df.at[index, 'Reasoning'] = reasoning
+            # Third: If negative, estimate impact
+            if sentiment == "Negative":
+                impact, reasoning = estimate_impact(llm, translated_text, row['Объект'])
+                df.at[index, 'Impact'] = impact
+                df.at[index, 'Reasoning'] = reasoning
         
-        # Update progress
-        progress = (index + 1) / len(df)
-        progress_bar.progress(progress)
-        status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
+            # Update progress
+            progress = (index + 1) / len(df)
+            progress_bar.progress(progress)
+            status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
         
-        # Display results
-        st.write(f"Объект: {row['Объект']}")
-        st.write(f"Новость: {row['Заголовок']}")
-        st.write(f"Тональность: {sentiment}")
-        if sentiment == "Negative":
-            st.write(f"Эффект: {impact}")
-            st.write(f"Обоснование: {reasoning}")
-        st.write("---")
+            # Display results
+            st.write(f"Объект: {row['Объект']}")
+            st.write(f"Новость: {row['Заголовок']}")
+            st.write(f"Тональность: {sentiment}")
+            if sentiment == "Negative":
+                st.write(f"Эффект: {impact}")
+                st.write(f"Обоснование: {reasoning}")
+            st.write("---")
 
-    progress_bar.empty()
-    status_text.empty()
+        progress_bar.empty()
+        status_text.empty()
 
-    # Generate visualization
-    visualization = generate_sentiment_visualization(df)
-    if visualization:
-        st.pyplot(visualization)
+        # Generate visualization
+        visualization = generate_sentiment_visualization(df)
+        if visualization:
+            st.pyplot(visualization)
 
-    return df
+        save_to_pdf(output_capture)
+
+
+        return df
+    
+
+    finally: 
+
+        sys.stdout = old_stdout
 
 def create_analysis_data(df):
     analysis_data = []
@@ -359,27 +392,25 @@ def create_output_file(df, uploaded_file):
     return output
 
 def main():
-    # Capture all output for PDF
-    with capture_streamlit_output() as output:
-        st.markdown(
-            """
-            <style>
-            .signature {
-                position: fixed;
-                right: 12px;
-                bottom: 12px;
-                font-size: 14px;
-                color: #FF0000;
-                opacity: 0.9;
-                z-index: 999;
-            }
-            </style>
-            <div class="signature">denis.pokrovsky.npff</div>
-            """,
-            unsafe_allow_html=True
-        )
-        
-        st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.1):::")
+    st.markdown(
+        """
+        <style>
+        .signature {
+            position: fixed;
+            right: 12px;
+            bottom: 12px;
+            font-size: 14px;
+            color: #FF0000;
+            opacity: 0.9;
+            z-index: 999;
+        }
+        </style>
+        <div class="signature">denis.pokrovsky.npff</div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.2):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
@@ -405,10 +436,6 @@ def main():
         elapsed_time = end_time - start_time
         formatted_time = format_elapsed_time(elapsed_time)
         st.success(f"Обработка и анализ завершены за {formatted_time}.")
-
-        if st.session_state.processed_df is not None:
-            save_to_pdf(output)  # Save the captured output to PDF
-
 
         st.download_button(
             label="Скачать результат анализа",
