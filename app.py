@@ -39,17 +39,7 @@ def create_download_section(excel_data, pdf_data):
         else:
             st.error("Ошибка при создании Excel файла")
     
-    with col2:
-        if pdf_data is not None:
-            st.download_button(
-                label="📄 Скачать PDF протокол",
-                data=pdf_data,
-                file_name="протокол_анализа.pdf",
-                mime="application/pdf",
-                key="pdf_download"
-            )
-        else:
-            st.error("Ошибка при создании PDF файла")
+
 
 
 def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
@@ -79,59 +69,8 @@ def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
     st.write("---")
 
 
-class StreamlitCapture:
-    def __init__(self):
-        self.texts = []
-    
-    def write(self, text):
-        if text and str(text).strip():  # Only capture non-empty text
-            self.texts.append(str(text))
-    
-    def flush(self):
-        pass
 
 
-
-def generate_pdf_report(texts):
-    try:
-        import pdfkit
-        from jinja2 import Template
-        
-        st.write("Подготовка PDF...")
-        
-        html_content = """
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                body { font-family: Arial, sans-serif; }
-                .content { margin: 20px; }
-            </style>
-        </head>
-        <body>
-            <div class="content">
-                {% for text in texts %}
-                    <p>{{ text }}</p>
-                {% endfor %}
-            </div>
-        </body>
-        </html>
-        """
-        
-        template = Template(html_content)
-        rendered_html = template.render(texts=texts)
-        
-        # Create PDF in memory
-        st.write("Конвертация в PDF...")
-        pdf_data = pdfkit.from_string(rendered_html, False)  # False means return PDF as bytes
-        st.write("PDF успешно создан")
-        return pdf_data
-        
-    except Exception as e:
-        st.warning(f"Не удалось создать PDF отчет: {str(e)}")
-        st.write("Создание текстового отчета вместо PDF...")
-        # Return the text as bytes if PDF generation fails
-        return '\n'.join(texts).encode('utf-8')
     
 # Initialize sentiment analyzers
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
@@ -348,26 +287,26 @@ def process_file(uploaded_file):
         
        
        # Generate all output files
-        st.write("Генерация отчетов...")
+        st.write("Генерация отчета...")
         
         # 1. Generate Excel
         excel_output = create_output_file(df, uploaded_file)
         
         # 2. Generate PDF
-        st.write("Создание PDF протокола...")
-        pdf_data = generate_pdf_report(output_capture.texts)
+        #st.write("Создание PDF протокола...")
+        #pdf_data = generate_pdf_report(output_capture.texts)
         
         # Save PDF to disk
-        if pdf_data:
-            with open("result.pdf", "wb") as f:
-                f.write(pdf_data)
-            st.success("PDF протокол сохранен как 'result.pdf'")
+        #if pdf_data:
+        #    with open("result.pdf", "wb") as f:
+        #        f.write(pdf_data)
+        #    st.success("PDF протокол сохранен как 'result.pdf'")
         
         # Show success message
-        st.success(f"✅ Обработка и анализ завершены за умеренное время.")
+        #st.success(f"✅ Обработка и анализ завершены за умеренное время.")
         
         # Create download section
-        create_download_section(excel_output, pdf_data)
+        create_download_section(excel_output,"")
         
         return df
         
