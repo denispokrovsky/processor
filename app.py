@@ -19,6 +19,27 @@ from io import StringIO
 import contextlib
 
 
+@contextlib.contextmanager
+def capture_streamlit_output():
+    # Create StringIO object to capture output
+    output = StringIO()
+    with contextlib.redirect_stdout(output):
+        yield output
+
+def save_to_pdf(output_text):
+    doc = SimpleDocTemplate("result.pdf", pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Split the captured output into lines
+    lines = output_text.getvalue().split('\n')
+    for line in lines:
+        if line.strip():  # Skip empty lines
+            p = Paragraph(line, styles['Normal'])
+            story.append(p)
+            story.append(Spacer(1, 12))  # Add space between paragraphs
+    
+    doc.build(story)
 
 # Initialize sentiment analyzers
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
@@ -388,7 +409,7 @@ def main():
         if st.session_state.processed_df is not None:
             save_to_pdf(output)  # Save the captured output to PDF
 
-            
+
         st.download_button(
             label="Скачать результат анализа",
             data=output,
