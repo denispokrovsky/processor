@@ -18,24 +18,10 @@ import pdfkit
 from jinja2 import Template
 
 
-def create_download_section(excel_data, output_capture):
+def create_download_section(excel_data, pdf_data):
     st.markdown("""
-        <style>
-        .download-container {
-            padding: 20px;
-            background-color: #f0f2f6;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
-        .download-header {
-            color: #0066cc;
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        </style>
         <div class="download-container">
-            <div class="download-header">📥 Результаты анализа готовы к скачиванию:</div>
+            <div class="download-header">📥 Результаты анализа доступны для скачивания:</div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -54,20 +40,17 @@ def create_download_section(excel_data, output_capture):
             st.error("Ошибка при создании Excel файла")
     
     with col2:
-        try:
-            pdf_data = generate_pdf_report(output_capture.texts)
-            if pdf_data:
-                st.download_button(
-                    label="📄 Скачать протокол",
-                    data=pdf_data,
-                    file_name="протокол_анализа.pdf" if isinstance(pdf_data, bytes) else "протокол_анализа.txt",
-                    mime="application/pdf" if isinstance(pdf_data, bytes) else "text/plain",
-                    key="pdf_download"
-                )
-            else:
-                st.error("Ошибка при создании протокола")
-        except Exception as e:
-            st.error(f"Ошибка при создании протокола: {str(e)}")
+        if pdf_data is not None:
+            st.download_button(
+                label="📄 Скачать PDF протокол",
+                data=pdf_data,
+                file_name="протокол_анализа.pdf",
+                mime="application/pdf",
+                key="pdf_download"
+            )
+        else:
+            st.error("Ошибка при создании PDF файла")
+
 
 def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
     if sentiment == "Negative":
@@ -114,6 +97,8 @@ def generate_pdf_report(texts):
         import pdfkit
         from jinja2 import Template
         
+        st.write("Подготовка PDF...")
+        
         html_content = """
         <html>
         <head>
@@ -137,11 +122,14 @@ def generate_pdf_report(texts):
         rendered_html = template.render(texts=texts)
         
         # Create PDF in memory
-        pdf_data = pdfkit.from_string(rendered_html, False)
+        st.write("Конвертация в PDF...")
+        pdf_data = pdfkit.from_string(rendered_html, False)  # False means return PDF as bytes
+        st.write("PDF успешно создан")
         return pdf_data
         
     except Exception as e:
         st.warning(f"Не удалось создать PDF отчет: {str(e)}")
+        st.write("Создание текстового отчета вместо PDF...")
         # Return the text as bytes if PDF generation fails
         return '\n'.join(texts).encode('utf-8')
     
@@ -359,16 +347,27 @@ def process_file(uploaded_file):
                                    reasoning if sentiment == "Negative" else None)
         
        
-        sys.stdout = old_stdout
+       # Generate all output files
+        st.write("Генерация отчетов...")
         
-        # Prepare Excel file
+        # 1. Generate Excel
         excel_output = create_output_file(df, uploaded_file)
         
+        # 2. Generate PDF
+        st.write("Создание PDF протокола...")
+        pdf_data = generate_pdf_report(output_capture.texts)
+        
+        # Save PDF to disk
+        if pdf_data:
+            with open("result.pdf", "wb") as f:
+                f.write(pdf_data)
+            st.success("PDF протокол сохранен как 'result.pdf'")
+        
         # Show success message
-        st.success(f"✅ Обработка и анализ завершены за умеренное время.")
+        st.success(f"✅ Обработка и анализ завершены за {formatted_time}.")
         
         # Create download section
-        create_download_section(excel_output, output_capture)
+        create_download_section(excel_output, pdf_data)
         
         return df
         
@@ -496,7 +495,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.62):::")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.7):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
