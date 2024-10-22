@@ -434,7 +434,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.7):::")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.8):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
