@@ -286,7 +286,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("... приступим к анализу... версия 73")
+    st.title("... приступим к анализу... версия 75")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
