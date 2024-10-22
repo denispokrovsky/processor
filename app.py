@@ -348,7 +348,7 @@ def process_file(uploaded_file):
         pdf_data = save_streamlit_output_to_pdf(output_capture.texts)
         
         # Show success message
-        st.success(f"✅ Обработка и анализ завершены за {formatted_time}.")
+        st.success(f"✅ Обработка и анализ завершены за разумное время.")
         
         # Create download section
         create_download_section(excel_output, pdf_data)
@@ -465,7 +465,7 @@ def main():
         .signature {
             position: fixed;
             right: 12px;
-            bottom: 12px;
+            up: 12px;
             font-size: 14px;
             color: #FF0000;
             opacity: 0.9;
@@ -477,7 +477,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.6):::")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.61):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
