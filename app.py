@@ -18,6 +18,45 @@ import pdfkit
 from jinja2 import Template
 
 
+def create_download_section(excel_data, pdf_data):
+    st.markdown("""
+        <style>
+        .download-container {
+            padding: 20px;
+            background-color: #f0f2f6;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .download-header {
+            color: #0066cc;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        </style>
+        <div class="download-container">
+            <div class="download-header">📥 Результаты анализа готовы к скачиванию:</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            label="📊 Скачать Excel отчет",
+            data=excel_data,
+            file_name="результат_анализа.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="excel_download"
+        )
+    with col2:
+        st.download_button(
+            label="📄 Скачать PDF протокол",
+            data=pdf_data,
+            file_name="протокол_анализа.pdf",
+            mime="application/pdf",
+            key="pdf_download"
+        )
+
 
 def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
     if sentiment == "Negative":
@@ -304,10 +343,20 @@ def process_file(uploaded_file):
         # Generate PDF at the end of processing
         save_streamlit_output_to_pdf(output_capture.texts)
         
+        # Prepare both files
+        excel_output = create_output_file(df, uploaded_file)
+        pdf_data = save_streamlit_output_to_pdf(output_capture.texts)
+        
+        # Show success message
+        st.success(f"✅ Обработка и анализ завершены за {formatted_time}.")
+        
+        # Create download section
+        create_download_section(excel_output, pdf_data)
         return df
     
-    finally:
-        sys.stdout = old_stdout
+    except Exception as e:
+        st.error(f"❌ Ошибка при обработке файла: {str(e)}")
+        raise e
 
 def create_analysis_data(df):
     analysis_data = []
@@ -402,6 +451,14 @@ def create_output_file(df, uploaded_file):
     return output
 
 def main():
+    
+    with st.expander("ℹ️ Как пользоваться"):
+        st.markdown("""
+        1. Загрузите Excel файл с новостями
+        2. Дождитесь завершения анализа
+        3. Скачайте результаты анализа в нужном формате (Excel и/или PDF)
+        """)    
+    
     st.markdown(
         """
         <style>
@@ -420,7 +477,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.52):::")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.6):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
