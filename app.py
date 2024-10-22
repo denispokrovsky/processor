@@ -224,9 +224,9 @@ def generate_sentiment_visualization(df):
     return fig
 
 def process_file(uploaded_file):
-    output_capture = StreamlitCapture()
+    #output_capture = StreamlitCapture()
     old_stdout = sys.stdout
-    sys.stdout = output_capture
+    #sys.stdout = output_capture
     
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
@@ -434,7 +434,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.8):::")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.9):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
