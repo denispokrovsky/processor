@@ -18,3 +18,4 @@ openai
 wordcloud
 pdfkit
 Jinja2==3.1.2
+langchain_openai
