@@ -80,7 +80,56 @@ rubert1 = pipeline("sentiment-analysis", model = "DeepPavlov/rubert-base-cased")
 rubert2 = pipeline("sentiment-analysis", model = "blanchefort/rubert-base-cased-sentiment")
 
 
+def estimate_sentiment_and_impact(llm, news_text, entity):
+    template = """
+    Проанализируйте следующую новость об объекте "{entity}" и определите:
+    1. Тональность новости (Позитивная/Негативная/Нейтральная)
+    2. Оцените потенциальное финансовое влияние в рублях для этого объекта в ближайшие 6 месяцев.
+    
+    Если точную денежную оценку дать невозможно, категоризируйте влияние как одно из следующих:
+    1. "Значительный риск убытков" 
+    2. "Умеренный риск убытков"
+    3. "Незначительный риск убытков"
+    4. "Вероятность прибыли"
+    5. "Неопределенный эффект"
 
+    Также предоставьте краткое обоснование (максимум 100 слов).
+
+    Новость: {news}
+
+    Ответ дайте в следующем формате:
+    Sentiment: [Positive/Negative/Neutral]
+    Impact: [Ваша оценка или категория]
+    Reasoning: [Ваше обоснование]
+    """
+    prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
+    chain = prompt | llm | RunnablePassthrough()
+    response = chain.invoke({"entity": entity, "news": news_text})
+    
+    # Parse the response
+    sentiment = "Neutral"
+    impact = "Неопределенный эффект"
+    reasoning = "Не удалось получить обоснование"
+    
+    if isinstance(response, str):
+        try:
+            # Extract sentiment
+            if "Sentiment:" in response:
+                sentiment_part = response.split("Sentiment:")[1].split("\n")[0].strip().lower()
+                if "positive" in sentiment_part:
+                    sentiment = "Positive"
+                elif "negative" in sentiment_part:
+                    sentiment = "Negative"
+            
+            # Extract impact and reasoning
+            if "Impact:" in response and "Reasoning:" in response:
+                impact_part, reasoning_part = response.split("Reasoning:")
+                impact = impact_part.split("Impact:")[1].strip()
+                reasoning = reasoning_part.strip()
+        except Exception as e:
+            st.error(f"Error parsing LLM response: {str(e)}")
+    
+    return sentiment, impact, reasoning
     
 @st.cache_resource
 def load_model(model_id):
@@ -343,78 +392,66 @@ def process_file(uploaded_file):
 
     st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
 
-    st.write("Начинаем предобработку и анализ текстов...")
-
-    texts = df['Выдержки из текста'].tolist()
-    texts = [str(text) if not pd.isna(text) else "" for text in texts]
-    
-    lemmatized_texts = [lemmatize_text(text) for text in texts]
-    translated_texts = batch_translate(lemmatized_texts)
-    df['Translated'] = translated_texts
-
-    # Perform sentiment analysis
-    df['ruBERT2'] = [get_rubert2_sentiment(text) for text in texts]
-    df['FinBERT'] = [get_finbert_sentiment(text) for text in translated_texts]
-    df['RoBERTa'] = [get_roberta_sentiment(text) for text in translated_texts]
-    df['FinBERT-Tone'] = [get_finbert_tone_sentiment(text) for text in translated_texts]
-
     # Initialize LLM
     llm = init_langchain_llm()
     if not llm:
         st.error("Не удалось инициализировать нейросеть. Пожалуйста, проверьте настройки и попробуйте снова.")
         st.stop()
 
-    # Perform LLM analysis
-    df['LLM_Impact'] = ''
-    df['LLM_Reasoning'] = ''
+    # Initialize columns for results
+    df['Sentiment'] = ''
+    df['Impact'] = ''
+    df['Reasoning'] = ''
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     
+    # Process each news item
     for index, row in df.iterrows():
-        if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
-            impact, reasoning = estimate_impact(llm, row['Translated'], row['Объект'])
-            df.at[index, 'LLM_Impact'] = impact
-            df.at[index, 'LLM_Reasoning'] = reasoning
-            
-            st.write(f"Объект: {row['Объект']}")
-            st.write(f"Новость: {row['Заголовок']}")
-            st.write(f"Эффект: {impact}")
-            st.write(f"Обоснование: {reasoning}")
-            st.write("---")
-
+        sentiment, impact, reasoning = estimate_sentiment_and_impact(
+            llm, 
+            row['Выдержки из текста'], 
+            row['Объект']
+        )
+        
+        df.at[index, 'Sentiment'] = sentiment
+        df.at[index, 'Impact'] = impact
+        df.at[index, 'Reasoning'] = reasoning
+        
+        # Display progress
         progress = (index + 1) / len(df)
         progress_bar.progress(progress)
         status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
-    
+        
+        # Display each analysis result
+        st.write(f"Объект: {row['Объект']}")
+        st.write(f"Новость: {row['Заголовок']}")
+        st.write(f"Тональность: {sentiment}")
+        st.write(f"Эффект: {impact}")
+        st.write(f"Обоснование: {reasoning}")
+        st.write("---")
+
     progress_bar.empty()
     status_text.empty()
 
+    # Generate visualization after processing
     visualization = generate_sentiment_visualization(df)
     if visualization:
         st.pyplot(visualization)
 
     return df
 
-def create_output_file(df, uploaded_file, analysis_df):
-    # Load the sample file to use as a template
+def create_output_file(df, uploaded_file):
     wb = load_workbook("sample_file.xlsx")
     
-    # Process data for 'Сводка' sheet
-    entities = df['Объект'].unique()
-    summary_data = []
-    for entity in entities:
-        entity_df = df[df['Объект'] == entity]
-        total_news = len(entity_df)
-        negative_news = sum((entity_df['FinBERT'] == 'Negative') | 
-                            (entity_df['RoBERTa'] == 'Negative') | 
-                            (entity_df['FinBERT-Tone'] == 'Negative'))
-        positive_news = sum((entity_df['FinBERT'] == 'Positive') | 
-                            (entity_df['RoBERTa'] == 'Positive') | 
-                            (entity_df['FinBERT-Tone'] == 'Positive'))
-        summary_data.append([entity, total_news, negative_news, positive_news])
-    
-    summary_df = pd.DataFrame(summary_data, columns=['Объект', 'Всего новостей', 'Отрицательные', 'Положительные'])
+    # Update summary sheet
+    summary_df = pd.DataFrame({
+        'Объект': df['Объект'].unique(),
+        'Всего новостей': df.groupby('Объект').size(),
+        'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size(),
+        'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size(),
+        'Преобладающий эффект': df.groupby('Объект')['Impact'].agg(lambda x: x.value_counts().index[0])
+    })
     summary_df = summary_df.sort_values('Отрицательные', ascending=False)
     
     # Write 'Сводка' sheet
@@ -467,7 +504,7 @@ def create_output_file(df, uploaded_file, analysis_df):
 
 def generate_sentiment_visualization(df):
     # Filter for negative sentiments
-    negative_df = df[df[['FinBERT', 'RoBERTa', 'FinBERT-Tone']].eq('Negative').any(axis=1)]
+    negative_df = df[df['Sentiment'] == 'Negative']
     
     if negative_df.empty:
         st.warning("Не обнаружено негативных упоминаний. Отображаем общую статистику по объектам.")
@@ -479,38 +516,17 @@ def generate_sentiment_visualization(df):
         st.warning("Нет данных для визуализации.")
         return None
     
-    if len(entity_counts) == 1:
-        st.warning("Обнаружен только один объект. Отображаем статистику в виде столбчатой диаграммы.")
-        fig, ax = plt.subplots()
-        entity_counts.plot(kind='bar', ax=ax)
-        ax.set_title('Количество упоминаний объекта')
-        ax.set_ylabel('Количество упоминаний')
-        plt.tight_layout()
-        return fig
-    
-    if len(entity_counts) <= 5:
-        st.info("Обнаружено малое количество объектов. Отображаем статистику в виде столбчатой диаграммы.")
-        fig, ax = plt.subplots(figsize=(10, 5))
-        entity_counts.plot(kind='bar', ax=ax)
-        ax.set_title('Количество упоминаний объектов')
-        ax.set_ylabel('Количество упоминаний')
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        return fig
-    
-    # If we have enough data, create a word cloud
-    wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(entity_counts)
-    
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.imshow(wordcloud, interpolation='bilinear')
-    ax.axis('off')
-    ax.set_title('Облако слов: Объекты с негативными упоминаниями' if not negative_df.empty else 'Облако слов: Все упоминания объектов')
-    
+    # Create a horizontal bar chart showing entity risk levels
+    fig, ax = plt.subplots(figsize=(12, max(6, len(entity_counts) * 0.5)))
+    entity_counts.plot(kind='barh', ax=ax)
+    ax.set_title('Количество негативных упоминаний по объектам')
+    ax.set_xlabel('Количество упоминаний')
+    plt.tight_layout()
     return fig
 
 
 def main():
-    st.title("... приступим к анализу... версия 70")
+    st.title("... приступим к анализу... версия 71")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
