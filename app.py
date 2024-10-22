@@ -18,7 +18,7 @@ import pdfkit
 from jinja2 import Template
 
 
-def create_download_section(excel_data, pdf_data):
+def create_download_section(excel_data, output_capture):
     st.markdown("""
         <style>
         .download-container {
@@ -40,23 +40,34 @@ def create_download_section(excel_data, pdf_data):
     """, unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
+    
     with col1:
-        st.download_button(
-            label="📊 Скачать Excel отчет",
-            data=excel_data,
-            file_name="результат_анализа.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="excel_download"
-        )
+        if excel_data is not None:
+            st.download_button(
+                label="📊 Скачать Excel отчет",
+                data=excel_data,
+                file_name="результат_анализа.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="excel_download"
+            )
+        else:
+            st.error("Ошибка при создании Excel файла")
+    
     with col2:
-        st.download_button(
-            label="📄 Скачать PDF протокол",
-            data=pdf_data,
-            file_name="протокол_анализа.pdf",
-            mime="application/pdf",
-            key="pdf_download"
-        )
-
+        try:
+            pdf_data = generate_pdf_report(output_capture.texts)
+            if pdf_data:
+                st.download_button(
+                    label="📄 Скачать протокол",
+                    data=pdf_data,
+                    file_name="протокол_анализа.pdf" if isinstance(pdf_data, bytes) else "протокол_анализа.txt",
+                    mime="application/pdf" if isinstance(pdf_data, bytes) else "text/plain",
+                    key="pdf_download"
+                )
+            else:
+                st.error("Ошибка при создании протокола")
+        except Exception as e:
+            st.error(f"Ошибка при создании протокола: {str(e)}")
 
 def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
     if sentiment == "Negative":
@@ -85,47 +96,54 @@ def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
     st.write("---")
 
 
-
-
 class StreamlitCapture:
     def __init__(self):
         self.texts = []
     
     def write(self, text):
-        self.texts.append(str(text))
+        if text and str(text).strip():  # Only capture non-empty text
+            self.texts.append(str(text))
+    
+    def flush(self):
+        pass
 
-def save_streamlit_output_to_pdf(texts):
-    # Create HTML content
-    html_content = """
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            body { font-family: Arial, sans-serif; }
-            .content { margin: 20px; }
-        </style>
-    </head>
-    <body>
-        <div class="content">
-            {% for text in texts %}
-                <p>{{ text }}</p>
-            {% endfor %}
-        </div>
-    </body>
-    </html>
-    """
-    
-    template = Template(html_content)
-    rendered_html = template.render(texts=texts)
-    
+
+
+def generate_pdf_report(texts):
     try:
-        # Convert HTML to PDF
-        pdfkit.from_string(rendered_html, 'result.pdf')
-        st.success("PDF файл 'result.pdf' успешно создан")
+        import pdfkit
+        from jinja2 import Template
+        
+        html_content = """
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body { font-family: Arial, sans-serif; }
+                .content { margin: 20px; }
+            </style>
+        </head>
+        <body>
+            <div class="content">
+                {% for text in texts %}
+                    <p>{{ text }}</p>
+                {% endfor %}
+            </div>
+        </body>
+        </html>
+        """
+        
+        template = Template(html_content)
+        rendered_html = template.render(texts=texts)
+        
+        # Create PDF in memory
+        pdf_data = pdfkit.from_string(rendered_html, False)
+        return pdf_data
+        
     except Exception as e:
-        st.error(f"Ошибка при создании PDF: {str(e)}")
-        st.warning("PDF generation requires wkhtmltopdf to be installed")
-
+        st.warning(f"Не удалось создать PDF отчет: {str(e)}")
+        # Return the text as bytes if PDF generation fails
+        return '\n'.join(texts).encode('utf-8')
     
 # Initialize sentiment analyzers
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
@@ -300,7 +318,7 @@ def process_file(uploaded_file):
 
         # Deduplication
         original_news_count = len(df)
-        df = df.groupby('Объект').apply(
+        df = df.groupby('Объект', group_keys=False).apply(
             lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
         ).reset_index(drop=True)
     
@@ -340,21 +358,22 @@ def process_file(uploaded_file):
                                    impact if sentiment == "Negative" else None,
                                    reasoning if sentiment == "Negative" else None)
         
-        # Generate PDF at the end of processing
-        save_streamlit_output_to_pdf(output_capture.texts)
+       
+        sys.stdout = old_stdout
         
-        # Prepare both files
+        # Prepare Excel file
         excel_output = create_output_file(df, uploaded_file)
-        pdf_data = save_streamlit_output_to_pdf(output_capture.texts)
         
         # Show success message
-        st.success(f"✅ Обработка и анализ завершены за разумное время.")
+        st.success(f"✅ Обработка и анализ завершены за умеренное время.")
         
         # Create download section
-        create_download_section(excel_output, pdf_data)
+        create_download_section(excel_output, output_capture)
+        
         return df
-    
+        
     except Exception as e:
+        sys.stdout = old_stdout
         st.error(f"❌ Ошибка при обработке файла: {str(e)}")
         raise e
 
@@ -477,7 +496,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.61):::")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.62):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
