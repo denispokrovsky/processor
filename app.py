@@ -260,9 +260,23 @@ def create_output_file_with_llm(df, uploaded_file, analysis_df):
 def create_analysis_data(df):
     analysis_data = []
     for _, row in df.iterrows():
-        if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
-            analysis_data.append([row['Объект'], row['Заголовок'], 'РИСК УБЫТКА', '', row['Выдержки из текста']])
-    return pd.DataFrame(analysis_data, columns=['Объект', 'Заголовок', 'Признак', 'Пояснение', 'Текст сообщения'])
+        if row['Sentiment'] == 'Negative':
+            analysis_data.append([
+                row['Объект'], 
+                row['Заголовок'], 
+                'РИСК УБЫТКА', 
+                row['Impact'],  # Now using LLM's impact assessment
+                row['Reasoning'],  # Adding LLM's reasoning
+                row['Выдержки из текста']
+            ])
+    return pd.DataFrame(analysis_data, columns=[
+        'Объект', 
+        'Заголовок', 
+        'Признак', 
+        'Оценка влияния',
+        'Обоснование',
+        'Текст сообщения'
+    ])
 
 # Function for lemmatizing Russian text
 def lemmatize_text(text):
@@ -441,42 +455,52 @@ def process_file(uploaded_file):
 
     return df
 
+
 def create_output_file(df, uploaded_file):
     wb = load_workbook("sample_file.xlsx")
     
-    # Update summary sheet
+    # Update 'Сводка' sheet
     summary_df = pd.DataFrame({
         'Объект': df['Объект'].unique(),
         'Всего новостей': df.groupby('Объект').size(),
-        'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size(),
-        'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size(),
-        'Преобладающий эффект': df.groupby('Объект')['Impact'].agg(lambda x: x.value_counts().index[0])
+        'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int),
+        'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int),
+        'Преобладающий эффект': df.groupby('Объект')['Impact'].agg(
+            lambda x: x.value_counts().index[0] if len(x) > 0 else 'Неопределенный'
+        )
     })
-    summary_df = summary_df.sort_values('Отрицательные', ascending=False)
+    
+    # Sort by number of negative mentions
+    summary_df = summary_df.sort_values('Негативные', ascending=False)
     
     # Write 'Сводка' sheet
     ws = wb['Сводка']
-    for r_idx, row in enumerate(dataframe_to_rows(summary_df, index=False, header=False), start=4):
+    for r_idx, row in enumerate(dataframe_to_rows(summary_df, index=False, header=True), start=4):
         for c_idx, value in enumerate(row, start=5):
             ws.cell(row=r_idx, column=c_idx, value=value)
     
-    # Process data for 'Значимые' sheet
-    
+    # Update 'Значимые' sheet
     significant_data = []
     for _, row in df.iterrows():
-        if any(row[model] in ['Negative', 'Positive'] for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']):
-            sentiment = 'Negative' if any(row[model] == 'Negative' for model in ['FinBERT', 'RoBERTa', 'FinBERT-Tone']) else 'Positive'
-            significant_data.append([row['Объект'], '', sentiment, '', row['Заголовок'], row['Выдержки из текста']])
+        if row['Sentiment'] in ['Negative', 'Positive']:
+            significant_data.append([
+                row['Объект'],
+                'релевантен',
+                row['Sentiment'],
+                row['Impact'],
+                row['Заголовок'],
+                row['Выдержки из текста']
+            ])
     
-    # Write 'Значимые' sheet
     ws = wb['Значимые']
     for r_idx, row in enumerate(significant_data, start=3):
         for c_idx, value in enumerate(row, start=3):
             ws.cell(row=r_idx, column=c_idx, value=value)
     
-    # Write 'Анализ' sheet
+    # Update 'Анализ' sheet
+    analysis_df = create_analysis_data(df)
     ws = wb['Анализ']
-    for r_idx, row in enumerate(dataframe_to_rows(analysis_df, index=False, header=False), start=4):
+    for r_idx, row in enumerate(dataframe_to_rows(analysis_df, index=False, header=True), start=4):
         for c_idx, value in enumerate(row, start=5):
             ws.cell(row=r_idx, column=c_idx, value=value)
     
@@ -495,12 +519,12 @@ def create_output_file(df, uploaded_file):
         for c_idx, value in enumerate(row, start=1):
             ws.cell(row=r_idx, column=c_idx, value=value)
     
-    # Save the workbook to a BytesIO object
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
-    
     return output
+
+
 
 def generate_sentiment_visualization(df):
     # Filter for negative sentiments
@@ -526,7 +550,26 @@ def generate_sentiment_visualization(df):
 
 
 def main():
-    st.title("... приступим к анализу... версия 71")
+    # Add custom CSS for the signature
+    st.markdown(
+        """
+        <style>
+        .signature {
+            position: fixed;
+            right: 10px;
+            bottom: 10px;
+            font-size: 12px;
+            color: #666;
+            opacity: 0.7;
+            z-index: 999;
+        }
+        </style>
+        <div class="signature">denis.pokrovsky.npff</div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.title("... приступим к анализу... версия 72")
     
     # Initialize session state
     if 'processed_df' not in st.session_state:
