@@ -28,7 +28,14 @@ def translate_text(llm, text):
     prompt = PromptTemplate(template=template, input_variables=["text"])
     chain = prompt | llm | RunnablePassthrough()
     response = chain.invoke({"text": text})
-    return response.strip()
+    
+    # Handle different response types
+    if hasattr(response, 'content'):  # If it's an AIMessage object
+        return response.content.strip()
+    elif isinstance(response, str):    # If it's a string
+        return response.strip()
+    else:
+        return str(response).strip()   # Convert any other type to string
 
 def get_mapped_sentiment(result):
     label = result['label'].lower()
@@ -103,20 +110,22 @@ def estimate_impact(llm, news_text, entity):
     Reasoning: [Your reasoning]
     """
     prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
-    chain = prompt | llm | RunnablePassthrough()
+    chain = prompt | llm
     response = chain.invoke({"entity": entity, "news": news_text})
     
     impact = "Неопределенный эффект"
     reasoning = "Не удалось получить обоснование"
     
-    if isinstance(response, str):
-        try:
-            if "Impact:" in response and "Reasoning:" in response:
-                impact_part, reasoning_part = response.split("Reasoning:")
-                impact = impact_part.split("Impact:")[1].strip()
-                reasoning = reasoning_part.strip()
-        except Exception as e:
-            st.error(f"Error parsing LLM response: {str(e)}")
+    # Extract content from response
+    response_text = response.content if hasattr(response, 'content') else str(response)
+    
+    try:
+        if "Impact:" in response_text and "Reasoning:" in response_text:
+            impact_part, reasoning_part = response_text.split("Reasoning:")
+            impact = impact_part.split("Impact:")[1].strip()
+            reasoning = reasoning_part.strip()
+    except Exception as e:
+        st.error(f"Error parsing LLM response: {str(e)}")
     
     return impact, reasoning
 
@@ -302,7 +311,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (2):::")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.0):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
