@@ -364,7 +364,7 @@ def process_file(uploaded_file):
             st.success("PDF протокол сохранен как 'result.pdf'")
         
         # Show success message
-        st.success(f"✅ Обработка и анализ завершены за {formatted_time}.")
+        st.success(f"✅ Обработка и анализ завершены за умеренное время.")
         
         # Create download section
         create_download_section(excel_output, pdf_data)
