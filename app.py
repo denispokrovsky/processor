@@ -18,6 +18,36 @@ import contextlib
 
 from fpdf import FPDF
 
+
+def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
+    if sentiment == "Negative":
+        st.markdown(f"""
+            <div style='color: red; font-weight: bold;'>
+            Объект: {row['Объект']}<br>
+            Новость: {row['Заголовок']}<br>
+            Тональность: {sentiment}<br>
+            {"Эффект: " + impact + "<br>" if impact else ""}
+            {"Обоснование: " + reasoning + "<br>" if reasoning else ""}
+            </div>
+            """, unsafe_allow_html=True)
+    elif sentiment == "Positive":
+        st.markdown(f"""
+            <div style='color: green; font-weight: bold;'>
+            Объект: {row['Объект']}<br>
+            Новость: {row['Заголовок']}<br>
+            Тональность: {sentiment}<br>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.write(f"Объект: {row['Объект']}")
+        st.write(f"Новость: {row['Заголовок']}")
+        st.write(f"Тональность: {sentiment}")
+    
+    st.write("---")
+
+
+    
+
 class StreamlitCapture:
     def __init__(self):
         self.texts = []
