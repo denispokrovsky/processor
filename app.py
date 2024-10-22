@@ -11,6 +11,14 @@ from langchain_community.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from transformers import pipeline
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from io import StringIO
+import contextlib
+
+
 
 # Initialize sentiment analyzers
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
@@ -261,25 +269,62 @@ def create_analysis_data(df):
 def create_output_file(df, uploaded_file):
     wb = load_workbook("sample_file.xlsx")
     
-    # Update 'Сводка' sheet
-    summary_df = pd.DataFrame({
+    # Sort entities by number of negative publications
+    entity_stats = pd.DataFrame({
         'Объект': df['Объект'].unique(),
-        'Всего новостей': df.groupby('Объект').size(),
+        'Всего': df.groupby('Объект').size(),
         'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int),
-        'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int),
-        'Преобладающий эффект': df.groupby('Объект')['Impact'].agg(
-            lambda x: x.value_counts().index[0] if len(x) > 0 else 'Неопределенный'
-        )
-    })
+        'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
+    }).sort_values('Негативные', ascending=False)
     
-    summary_df = summary_df.sort_values('Негативные', ascending=False)
+    # Calculate most negative impact for each entity
+    entity_impacts = {}
+    for entity in df['Объект'].unique():
+        entity_df = df[df['Объект'] == entity]
+        negative_impacts = entity_df[entity_df['Sentiment'] == 'Negative']['Impact']
+        entity_impacts[entity] = negative_impacts.iloc[0] if len(negative_impacts) > 0 else 'Неопределенный эффект'
     
-    # Write sheets...
-    # (keep existing code for writing sheets)
+    # Update 'Сводка' sheet
+    ws = wb['Сводка']
+    for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
+        ws.cell(row=idx, column=5, value=entity)  # Column E
+        ws.cell(row=idx, column=6, value=row['Всего'])  # Column F
+        ws.cell(row=idx, column=7, value=row['Негативные'])  # Column G
+        ws.cell(row=idx, column=8, value=row['Позитивные'])  # Column H
+        ws.cell(row=idx, column=9, value=entity_impacts[entity])  # Column I
     
-    # Update 'Тех.приложение' sheet to include translated text
+    # Update 'Значимые' sheet
+    ws = wb['Значимые']
+    row_idx = 3
+    for _, row in df.iterrows():
+        if row['Sentiment'] in ['Negative', 'Positive']:
+            ws.cell(row=row_idx, column=3, value=row['Объект'])  # Column C
+            ws.cell(row=row_idx, column=4, value='релевантно')   # Column D
+            ws.cell(row=row_idx, column=5, value=row['Sentiment']) # Column E
+            ws.cell(row=row_idx, column=6, value=row['Impact'])   # Column F
+            ws.cell(row=row_idx, column=7, value=row['Заголовок']) # Column G
+            ws.cell(row=row_idx, column=8, value=row['Выдержки из текста']) # Column H
+            row_idx += 1
+    
+    # Copy 'Публикации' sheet
+    original_df = pd.read_excel(uploaded_file, sheet_name='Публикации')
+    ws = wb['Публикации']
+    for r_idx, row in enumerate(dataframe_to_rows(original_df, index=False, header=True), start=1):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+    
+    # Update 'Анализ' sheet
+    ws = wb['Анализ']
+    row_idx = 4
+    for _, row in df[df['Sentiment'] == 'Negative'].iterrows():
+        ws.cell(row=row_idx, column=5, value=row['Объект'])  # Column E
+        ws.cell(row=row_idx, column=6, value=row['Заголовок'])  # Column F
+        ws.cell(row=row_idx, column=7, value="Риск убытка")  # Column G
+        ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])  # Column I
+        row_idx += 1
+    
+    # Update 'Тех.приложение' sheet
     tech_df = df[['Объект', 'Заголовок', 'Выдержки из текста', 'Translated', 'Sentiment', 'Impact', 'Reasoning']]
-    
     if 'Тех.приложение' not in wb.sheetnames:
         wb.create_sheet('Тех.приложение')
     ws = wb['Тех.приложение']
@@ -293,25 +338,27 @@ def create_output_file(df, uploaded_file):
     return output
 
 def main():
-    st.markdown(
-        """
-        <style>
-        .signature {
-            position: fixed;
-            right: 12px;
-            bottom: 12px;
-            font-size: 14px;
-            color: #FF0000;
-            opacity: 0.9;
-            z-index: 999;
-        }
-        </style>
-        <div class="signature">denis.pokrovsky.npff</div>
-        """,
-        unsafe_allow_html=True
-    )
-    
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.0):::")
+    # Capture all output for PDF
+    with capture_streamlit_output() as output:
+        st.markdown(
+            """
+            <style>
+            .signature {
+                position: fixed;
+                right: 12px;
+                bottom: 12px;
+                font-size: 14px;
+                color: #FF0000;
+                opacity: 0.9;
+                z-index: 999;
+            }
+            </style>
+            <div class="signature">denis.pokrovsky.npff</div>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.1):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
@@ -338,6 +385,10 @@ def main():
         formatted_time = format_elapsed_time(elapsed_time)
         st.success(f"Обработка и анализ завершены за {formatted_time}.")
 
+        if st.session_state.processed_df is not None:
+            save_to_pdf(output)  # Save the captured output to PDF
+
+            
         st.download_button(
             label="Скачать результат анализа",
             data=output,
