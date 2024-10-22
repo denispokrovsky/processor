@@ -7,16 +7,16 @@ import io
 from rapidfuzz import fuzz
 import os
 from openpyxl import load_workbook
-from langchain_community.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from transformers import pipeline
 from io import StringIO, BytesIO
 import sys
 import contextlib
+from langchain_openai import ChatOpenAI  # Updated import
+import pdfkit
+from jinja2 import Template
 
-
-from fpdf import FPDF
 
 
 def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
@@ -46,7 +46,7 @@ def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
     st.write("---")
 
 
-    
+
 
 class StreamlitCapture:
     def __init__(self):
@@ -56,17 +56,36 @@ class StreamlitCapture:
         self.texts.append(str(text))
 
 def save_streamlit_output_to_pdf(texts):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
-    pdf.set_font('DejaVu', '', 12)
+    # Create HTML content
+    html_content = """
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body { font-family: Arial, sans-serif; }
+            .content { margin: 20px; }
+        </style>
+    </head>
+    <body>
+        <div class="content">
+            {% for text in texts %}
+                <p>{{ text }}</p>
+            {% endfor %}
+        </div>
+    </body>
+    </html>
+    """
     
-    for text in texts:
-        # Clean and encode the text
-        clean_text = text.encode('latin-1', errors='replace').decode('latin-1')
-        pdf.multi_cell(0, 10, clean_text)
+    template = Template(html_content)
+    rendered_html = template.render(texts=texts)
     
-    pdf.output("result.pdf", 'F')
+    try:
+        # Convert HTML to PDF
+        pdfkit.from_string(rendered_html, 'result.pdf')
+        st.success("PDF файл 'result.pdf' успешно создан")
+    except Exception as e:
+        st.error(f"Ошибка при создании PDF: {str(e)}")
+        st.warning("PDF generation requires wkhtmltopdf to be installed")
 
     
 # Initialize sentiment analyzers
@@ -139,7 +158,7 @@ def init_langchain_llm():
         llm = ChatOpenAI(
             base_url="https://api.groq.com/openai/v1",
             model="llama-3.1-70b-versatile",
-            api_key=groq_api_key,
+            openai_api_key=groq_api_key,  # Updated parameter name
             temperature=0.0
         )
         return llm
@@ -401,7 +420,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.3):::")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.4):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
