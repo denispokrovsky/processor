@@ -20,45 +20,29 @@ import sys
 import contextlib
 
 
-class StreamlitOutputCapture:
+from fpdf import FPDF
+
+class StreamlitCapture:
     def __init__(self):
-        self.output = []
-
+        self.texts = []
+    
     def write(self, text):
-        self.output.append(text)
-        
-    def getvalue(self):
-        return ''.join(self.output)
+        self.texts.append(str(text))
 
-    def flush(self):
-        pass
+def save_streamlit_output_to_pdf(texts):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+    pdf.set_font('DejaVu', '', 12)
+    
+    for text in texts:
+        # Clean and encode the text
+        clean_text = text.encode('latin-1', errors='replace').decode('latin-1')
+        pdf.multi_cell(0, 10, clean_text)
+    
+    pdf.output("result.pdf", 'F')
 
-def save_to_pdf(captured_output):
-    try:
-        # Create PDF document
-        doc = SimpleDocTemplate("result.pdf", pagesize=letter)
-        styles = getSampleStyleSheet()
-        story = []
-        
-        # Convert captured output to string and split into lines
-        output_text = captured_output.getvalue()
-        lines = output_text.split('\n')
-        
-        # Add each line to the PDF
-        for line in lines:
-            if line.strip():  # Skip empty lines
-                # Clean the line and handle any encoding issues
-                cleaned_line = line.encode('utf-8', errors='ignore').decode('utf-8')
-                p = Paragraph(cleaned_line, styles['Normal'])
-                story.append(p)
-                story.append(Spacer(1, 12))
-        
-        # Build the PDF
-        doc.build(story)
-        st.success("PDF файл 'result.pdf' успешно создан")
-    except Exception as e:
-        st.error(f"Ошибка при создании PDF: {str(e)}")
-
+    
 # Initialize sentiment analyzers
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
 roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
@@ -211,12 +195,10 @@ def generate_sentiment_visualization(df):
     return fig
 
 def process_file(uploaded_file):
-    
-    
-    output_capture = StreamlitOutputCapture()
+    output_capture = StreamlitCapture()
     old_stdout = sys.stdout
     sys.stdout = output_capture
-
+    
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
 
@@ -253,50 +235,33 @@ def process_file(uploaded_file):
         df['Reasoning'] = ''
     
         for index, row in df.iterrows():
-            # First: Translate
             translated_text = translate_text(llm, row['Выдержки из текста'])
             df.at[index, 'Translated'] = translated_text
-        
-            # Second: Analyze sentiment
+            
             sentiment = analyze_sentiment(translated_text)
             df.at[index, 'Sentiment'] = sentiment
-        
-            # Third: If negative, estimate impact
+            
             if sentiment == "Negative":
                 impact, reasoning = estimate_impact(llm, translated_text, row['Объект'])
                 df.at[index, 'Impact'] = impact
                 df.at[index, 'Reasoning'] = reasoning
-        
+            
             # Update progress
             progress = (index + 1) / len(df)
             progress_bar.progress(progress)
             status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
+            
+            # Display results with color coding
+            display_sentiment_results(row, sentiment, 
+                                   impact if sentiment == "Negative" else None,
+                                   reasoning if sentiment == "Negative" else None)
         
-            # Display results
-            st.write(f"Объект: {row['Объект']}")
-            st.write(f"Новость: {row['Заголовок']}")
-            st.write(f"Тональность: {sentiment}")
-            if sentiment == "Negative":
-                st.write(f"Эффект: {impact}")
-                st.write(f"Обоснование: {reasoning}")
-            st.write("---")
-
-        progress_bar.empty()
-        status_text.empty()
-
-        # Generate visualization
-        visualization = generate_sentiment_visualization(df)
-        if visualization:
-            st.pyplot(visualization)
-
-        save_to_pdf(output_capture)
-
-
+        # Generate PDF at the end of processing
+        save_streamlit_output_to_pdf(output_capture.texts)
+        
         return df
     
-
-    finally: 
-
+    finally:
         sys.stdout = old_stdout
 
 def create_analysis_data(df):
@@ -410,7 +375,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.2):::")
+    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.3):::")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
@@ -421,7 +386,8 @@ def main():
         start_time = time.time()
         
         st.session_state.processed_df = process_file(uploaded_file)
-        
+
+       
         st.subheader("Предпросмотр данных")
         preview_df = st.session_state.processed_df[['Объект', 'Заголовок', 'Sentiment', 'Impact']].head()
         st.dataframe(preview_df)
