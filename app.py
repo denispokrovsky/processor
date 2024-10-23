@@ -409,12 +409,24 @@ def create_output_file(df, uploaded_file):
 
 def main():
     
-    with st.expander("ℹ️ Как пользоваться"):
-        st.markdown("""
-        1. Загрузите Excel файл с новостями
-        2. Дождитесь завершения анализа
-        3. Скачайте результаты анализа в нужном формате (Excel и/или PDF)
-        """)    
+    with st.sidebar:
+        st.title("::: AI-анализ мониторинга новостей :::")
+        st.subheader("по материалам СКАН-ИНТЕРФАКС (v.3.10)")
+        st.markdown(
+        """
+        Использованы технологии:  
+        Анализ естественного языка с помощью предтренированных нейросетей **BERT**<br/>
+	    Дополнительная обработка при помощи больших языковых моделей (**LLM**)<br/>
+	    объединенные при помощи	фреймворка **LangChain**.<br> 
+	
+      	**Инструкция** \n
+        1. Загрузите Excel файл с новостями <br/>
+        2. Дождитесь завершения анализа <br/>
+        3. Скачайте результаты анализа в формате Excel <br/>
+     
+        
+        """,
+        unsafe_allow_html=True)
     
     st.markdown(
         """
@@ -434,12 +446,13 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("::: анализ мониторинга новостей СКАН-ИНТЕРФАКС (v.3.9):::")
+    st.title("Анализ мониторинга новостей")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
     
-    uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
+    with st.sidebar:
+        uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
     
     if uploaded_file is not None and st.session_state.processed_df is None:
         start_time = time.time()
