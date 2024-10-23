@@ -18,6 +18,26 @@ import pdfkit
 from jinja2 import Template
 
 
+def translate_reasoning_to_russian(llm, text):
+    template = """
+    Translate this English explanation to Russian, maintaining a formal business style:
+    "{text}"
+    
+    Your response should contain only the Russian translation.
+    """
+    prompt = PromptTemplate(template=template, input_variables=["text"])
+    chain = prompt | llm | RunnablePassthrough()
+    response = chain.invoke({"text": text})
+    
+    # Handle different response types
+    if hasattr(response, 'content'):
+        return response.content.strip()
+    elif isinstance(response, str):
+        return response.strip()
+    else:
+        return str(response).strip()
+    
+
 def create_download_section(excel_data, pdf_data):
     st.markdown("""
         <div class="download-container">
@@ -290,7 +310,7 @@ def process_file(uploaded_file):
         st.write("Генерация отчета...")
         
         # 1. Generate Excel
-        excel_output = create_output_file(df, uploaded_file)
+        excel_output = create_output_file(df, uploaded_file, llm)
         
         # 2. Generate PDF
         #st.write("Создание PDF протокола...")
@@ -336,7 +356,7 @@ def create_analysis_data(df):
         'Текст сообщения'
     ])
 
-def create_output_file(df, uploaded_file):
+def create_output_file(df, uploaded_file, llm):
     wb = load_workbook("sample_file.xlsx")
     
     # Sort entities by number of negative publications
@@ -390,6 +410,12 @@ def create_output_file(df, uploaded_file):
         ws.cell(row=row_idx, column=5, value=row['Объект'])  # Column E
         ws.cell(row=row_idx, column=6, value=row['Заголовок'])  # Column F
         ws.cell(row=row_idx, column=7, value="Риск убытка")  # Column G
+        
+        # Translate reasoning if it exists
+        if pd.notna(row['Reasoning']):
+            translated_reasoning = translate_reasoning_to_russian(llm, row['Reasoning'])
+            ws.cell(row=row_idx, column=8, value=translated_reasoning)  # Column H
+        
         ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])  # Column I
         row_idx += 1
     
@@ -410,7 +436,7 @@ def create_output_file(df, uploaded_file):
 def main():
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.12):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.12a):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         st.markdown(
         """
@@ -469,7 +495,7 @@ def main():
         st.subheader("Анализ")
         st.dataframe(analysis_df)
         
-        output = create_output_file(st.session_state.processed_df, uploaded_file)
+        output = create_output_file(st.session_state.processed_df, uploaded_file, llm)
         
         end_time = time.time()
         elapsed_time = end_time - start_time
