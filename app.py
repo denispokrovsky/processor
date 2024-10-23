@@ -250,7 +250,7 @@ def process_file(uploaded_file):
     
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
-
+        llm = init_langchain_llm()
         required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
@@ -436,7 +436,7 @@ def create_output_file(df, uploaded_file, llm):
 def main():
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.12a):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.12b):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         st.markdown(
         """
@@ -495,6 +495,7 @@ def main():
         st.subheader("Анализ")
         st.dataframe(analysis_df)
         
+        llm = init_langchain_llm()
         output = create_output_file(st.session_state.processed_df, uploaded_file, llm)
         
         end_time = time.time()
