@@ -447,7 +447,34 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("Анализ мониторинга новостей")
+    col1, col2 = st.columns([1, 4])
+
+    with col1:
+        st.markdown("""
+            <div style="
+                margin-top: 25px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100%;
+            ">
+                <img src="logopic.png" 
+                    width="50" 
+                    title="в чащах юга жил-был цитрус - да, но фальшивый экземпляр"
+                    style="
+                        max-width: 10%;
+                        height: auto;
+                        display: block;
+                    "
+                >
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+
+    with col2:
+        st.title("Анализ мониторинга новостей")
+    
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
