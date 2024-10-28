@@ -265,14 +265,14 @@ def generate_sentiment_visualization(df):
     plt.tight_layout()
     return fig
 
-def process_file(uploaded_file):
+def process_file(uploaded_file, model_choice):
     #output_capture = StreamlitCapture()
     old_stdout = sys.stdout
     #sys.stdout = output_capture
     
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
-        llm = init_langchain_llm()
+        llm = init_langchain_llm(model_choice)
         required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
@@ -280,7 +280,7 @@ def process_file(uploaded_file):
             st.stop()
     
         # Initialize LLM
-        llm = init_langchain_llm()
+        llm = init_langchain_llm(model_choice)
         if not llm:
             st.error("Не удалось инициализировать нейросеть. Пожалуйста, проверьте настройки и попробуйте снова.")
             st.stop()
@@ -457,7 +457,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.16):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.17):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
@@ -519,7 +519,7 @@ def main():
         llm = init_langchain_llm(model_choice)
 
 
-        st.session_state.processed_df = process_file(uploaded_file)
+        st.session_state.processed_df = process_file(uploaded_file, model_choice)
 
         st.subheader("Предпросмотр данных")
         preview_df = st.session_state.processed_df[['Объект', 'Заголовок', 'Sentiment', 'Impact']].head()
