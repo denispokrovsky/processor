@@ -98,6 +98,14 @@ roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-
 finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
 
 
+def get_mapped_sentiment(result):
+    label = result['label'].lower()
+    if label in ["positive", "label_2", "pos", "pos_label"]:
+        return "Positive"
+    elif label in ["negative", "label_0", "neg", "neg_label"]:
+        return "Negative"
+    return "Neutral"
+
 
 
 def analyze_sentiment(text):
