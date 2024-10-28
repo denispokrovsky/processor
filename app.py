@@ -133,42 +133,43 @@ def fuzzy_deduplicate(df, column, threshold=65):
             seen_texts.append(text)
             indices_to_keep.append(i)
     return df.iloc[indices_to_keep]
+
+
 def translate_text(llm, text):
     try:
-        # Debug print
-        st.write(f"Debug - Model type: {type(llm)}")
-        st.write(f"Debug - Model attributes: {dir(llm)}")
-        
-        messages = [
-            {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
-            {"role": "user", "content": f"Translate this Russian text to English: {text}"}
-        ]
-        
-        # For different model types, we'll use different approaches
         if isinstance(llm, ChatOpenAI):
-            try:
-                # Direct ChatCompletion call
-                response = llm.invoke(messages)
-                st.write(f"Debug - Response type: {type(response)}")
-                st.write(f"Debug - Response: {response}")
-                
-                # Handle response based on its type
-                if hasattr(response, 'content'):
-                    return response.content.strip()
-                elif isinstance(response, str):
-                    return response.strip()
-                else:
-                    return str(response).strip()
-            except Exception as e:
-                st.error(f"Translation API error: {str(e)}")
-                return text
+            # Handle OpenAI-compatible API calls (Groq, OpenAI)
+            messages = [
+                {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
+                {"role": "user", "content": f"Translate this Russian text to English: {text}"}
+            ]
+            response = llm.invoke(messages)
+            
+            if hasattr(response, 'content'):
+                return response.content.strip()
+            elif isinstance(response, str):
+                return response.strip()
+            else:
+                return str(response).strip()
         else:
-            st.error(f"Unsupported model type: {type(llm)}")
-            return text
+            # For Qwen pipeline
+            messages = [
+                {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
+                {"role": "user", "content": f"Translate this Russian text to English: {text}"}
+            ]
+            
+            # Generate response using pipeline
+            response = llm(messages, max_length=512, num_return_sequences=1)[0]['generated_text']
+            
+            # Extract the relevant part of the response (after the prompt)
+            response_text = response.split("English:")[-1].strip()
+            return response_text
             
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
-        return text  # Return original text if translation fails
+        return text
+
+
 
 def init_langchain_llm(model_choice):
     try:
@@ -190,22 +191,19 @@ def init_langchain_llm(model_choice):
                 st.stop()
                 
             return ChatOpenAI(
-                model="gpt-4o-mini",  # Changed from gpt-4o to gpt-4
+                model="gpt-4",
                 openai_api_key=st.secrets['openai_key'],
                 temperature=0.0
             )
             
-        else:  # NVIDIA Nemotron-70B
-            if 'nvapi' not in st.secrets:
-                st.error("NVIDIA API key not found in secrets. Please add it with the key 'nvapi'.")
-                st.stop()
-                
-            return ChatOpenAI(
-                base_url="https://integrate.api.nvidia.com/v1",
-                model="nvidia/llama-3.1-nemotron-70b-instruct",
-                openai_api_key=st.secrets['nvapi'],
-                temperature=0.0
+        else:  # Qwen model
+            # Initialize Qwen pipeline
+            pipe = pipeline(
+                "text-generation", 
+                model="Qwen/Qwen2.5-7B-Instruct-GPTQ-Int8",
+                device_map="auto"
             )
+            return pipe
             
     except Exception as e:
         st.error(f"Error initializing the LLM: {str(e)}")
@@ -476,12 +474,12 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.20):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.21):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
             "Выберите модель для анализа:",
-            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "NVIDIA Nemotron-70B"],
+            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Qwen 2.5-7B (GPTQ-Int8)"],
             key="model_selector"
         )
         
