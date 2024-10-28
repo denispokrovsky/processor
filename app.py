@@ -98,32 +98,7 @@ roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-
 finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
 
 
-def translate_text(llm, text):
-    template = """
-    Translate this Russian text into English:
-    "{text}"
-    
-    Your response should contain only the English translation.
-    """
-    prompt = PromptTemplate(template=template, input_variables=["text"])
-    chain = prompt | llm | RunnablePassthrough()
-    response = chain.invoke({"text": text})
-    
-    # Handle different response types
-    if hasattr(response, 'content'):  # If it's an AIMessage object
-        return response.content.strip()
-    elif isinstance(response, str):    # If it's a string
-        return response.strip()
-    else:
-        return str(response).strip()   # Convert any other type to string
 
-def get_mapped_sentiment(result):
-    label = result['label'].lower()
-    if label in ["positive", "label_2", "pos", "pos_label"]:
-        return "Positive"
-    elif label in ["negative", "label_0", "neg", "neg_label"]:
-        return "Negative"
-    return "Neutral"
 
 def analyze_sentiment(text):
     finbert_result = get_mapped_sentiment(finbert(text, truncation=True, max_length=512)[0])
@@ -150,6 +125,42 @@ def fuzzy_deduplicate(df, column, threshold=65):
             seen_texts.append(text)
             indices_to_keep.append(i)
     return df.iloc[indices_to_keep]
+def translate_text(llm, text):
+    try:
+        # Debug print
+        st.write(f"Debug - Model type: {type(llm)}")
+        st.write(f"Debug - Model attributes: {dir(llm)}")
+        
+        messages = [
+            {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
+            {"role": "user", "content": f"Translate this Russian text to English: {text}"}
+        ]
+        
+        # For different model types, we'll use different approaches
+        if isinstance(llm, ChatOpenAI):
+            try:
+                # Direct ChatCompletion call
+                response = llm.invoke(messages)
+                st.write(f"Debug - Response type: {type(response)}")
+                st.write(f"Debug - Response: {response}")
+                
+                # Handle response based on its type
+                if hasattr(response, 'content'):
+                    return response.content.strip()
+                elif isinstance(response, str):
+                    return response.strip()
+                else:
+                    return str(response).strip()
+            except Exception as e:
+                st.error(f"Translation API error: {str(e)}")
+                return text
+        else:
+            st.error(f"Unsupported model type: {type(llm)}")
+            return text
+            
+    except Exception as e:
+        st.error(f"Translation error: {str(e)}")
+        return text  # Return original text if translation fails
 
 def init_langchain_llm(model_choice):
     try:
@@ -165,13 +176,13 @@ def init_langchain_llm(model_choice):
                 temperature=0.0
             )
             
-        elif model_choice == "ChatGPT-4o":
+        elif model_choice == "ChatGPT-4-mini":
             if 'openai_key' not in st.secrets:
                 st.error("OpenAI API key not found in secrets. Please add it with the key 'openai_key'.")
                 st.stop()
                 
             return ChatOpenAI(
-                model="gpt-4o",
+                model="gpt-4o-mini",  # Changed from gpt-4o to gpt-4
                 openai_api_key=st.secrets['openai_key'],
                 temperature=0.0
             )
@@ -457,7 +468,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.17):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.20):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
