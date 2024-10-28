@@ -166,13 +166,13 @@ def init_langchain_llm(model_choice):
             )
             
         elif model_choice == "ChatGPT-4o":
-            if 'groq_key' not in st.secrets:
-                st.error("OpenAI API key not found in secrets. Please add it with the key 'groq_key'.")
+            if 'openai_key' not in st.secrets:
+                st.error("OpenAI API key not found in secrets. Please add it with the key 'openai_key'.")
                 st.stop()
                 
             return ChatOpenAI(
                 model="gpt-4o",
-                openai_api_key=st.secrets['groq_key'],
+                openai_api_key=st.secrets['openai_key'],
                 temperature=0.0
             )
             
