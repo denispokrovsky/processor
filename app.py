@@ -183,7 +183,7 @@ def init_langchain_llm(model_choice):
             )
             
         else:  # Qwen API
-            if 'dashscope_api_key' not in st.secrets:
+            if 'ali_key' not in st.secrets:
                 st.error("DashScope API key not found in secrets. Please add it with the key 'dashscope_api_key'.")
                 st.stop()
             
