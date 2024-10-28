@@ -137,33 +137,19 @@ def fuzzy_deduplicate(df, column, threshold=65):
 
 def translate_text(llm, text):
     try:
-        if isinstance(llm, ChatOpenAI):
-            # Handle OpenAI-compatible API calls (Groq, OpenAI)
-            messages = [
-                {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
-                {"role": "user", "content": f"Translate this Russian text to English: {text}"}
-            ]
-            response = llm.invoke(messages)
-            
-            if hasattr(response, 'content'):
-                return response.content.strip()
-            elif isinstance(response, str):
-                return response.strip()
-            else:
-                return str(response).strip()
+        # All models now use OpenAI-compatible API format
+        messages = [
+            {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
+            {"role": "user", "content": f"Translate this Russian text to English: {text}"}
+        ]
+        response = llm.invoke(messages)
+        
+        if hasattr(response, 'content'):
+            return response.content.strip()
+        elif isinstance(response, str):
+            return response.strip()
         else:
-            # For Qwen pipeline
-            messages = [
-                {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
-                {"role": "user", "content": f"Translate this Russian text to English: {text}"}
-            ]
-            
-            # Generate response using pipeline
-            response = llm(messages, max_length=512, num_return_sequences=1)[0]['generated_text']
-            
-            # Extract the relevant part of the response (after the prompt)
-            response_text = response.split("English:")[-1].strip()
-            return response_text
+            return str(response).strip()
             
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
@@ -196,14 +182,18 @@ def init_langchain_llm(model_choice):
                 temperature=0.0
             )
             
-        else:  # Qwen model
-            # Initialize Qwen pipeline
-            pipe = pipeline(
-                "text-generation", 
-                model="Qwen/Qwen2.5-7B-Instruct-GPTQ-Int8",
-                device_map="auto"
+        else:  # Qwen API
+            if 'dashscope_api_key' not in st.secrets:
+                st.error("DashScope API key not found in secrets. Please add it with the key 'dashscope_api_key'.")
+                st.stop()
+            
+            # Using Qwen's API through DashScope
+            return ChatOpenAI(
+                base_url="https://dashscope.aliyuncs.com/api/v1",
+                model="qwen-max",
+                openai_api_key=st.secrets['ali_key'],
+                temperature=0.0
             )
-            return pipe
             
     except Exception as e:
         st.error(f"Error initializing the LLM: {str(e)}")
@@ -474,12 +464,12 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.21):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.22):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
             "Выберите модель для анализа:",
-            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Qwen 2.5-7B (GPTQ-Int8)"],
+            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Qwen-Max"],
             key="model_selector"
         )
         
