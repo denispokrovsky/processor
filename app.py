@@ -484,7 +484,7 @@ def main():
             4. Скачайте результаты анализа в формате Excel <br/>
             """, unsafe_allow_html=True)
     
-	st.markdown(
+        st.markdown(
         """
         <style>
         .signature {
@@ -500,7 +500,7 @@ def main():
         <div class="signature">denis.pokrovsky.npff</div>
         """,
         unsafe_allow_html=True
-    )
+        )
 
     st.title("Анализ мониторинга новостей")
     
