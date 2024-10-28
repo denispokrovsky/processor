@@ -463,7 +463,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.13):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.14):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         st.markdown(
         """
@@ -474,6 +474,8 @@ def main():
         """,
         unsafe_allow_html=True)
 
+        # Model selection is now handled in init_langchain_llm()
+        
         with st.expander("ℹ️ Инструкция"):
             st.markdown("""
             1. Выберите модель для анализа
@@ -481,11 +483,8 @@ def main():
             3. Дождитесь завершения анализа <br/>
             4. Скачайте результаты анализа в формате Excel <br/>
             """, unsafe_allow_html=True)
-        
-        uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
-
     
-    st.markdown(
+	st.markdown(
         """
         <style>
         .signature {
@@ -502,21 +501,20 @@ def main():
         """,
         unsafe_allow_html=True
     )
-    
+
     st.title("Анализ мониторинга новостей")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
     
-    with st.sidebar:
-        uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
+    # Single file uploader with unique key
+    uploaded_file = st.sidebar.file_uploader("Выбирайте Excel-файл", type="xlsx", key="unique_file_uploader")
     
     if uploaded_file is not None and st.session_state.processed_df is None:
         start_time = time.time()
         
         st.session_state.processed_df = process_file(uploaded_file)
 
-       
         st.subheader("Предпросмотр данных")
         preview_df = st.session_state.processed_df[['Объект', 'Заголовок', 'Sentiment', 'Impact']].head()
         st.dataframe(preview_df)
