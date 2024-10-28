@@ -151,15 +151,8 @@ def fuzzy_deduplicate(df, column, threshold=65):
             indices_to_keep.append(i)
     return df.iloc[indices_to_keep]
 
-def init_langchain_llm():
+def init_langchain_llm(model_choice):
     try:
-        # Get model selection from sidebar with unique key
-        model_choice = st.sidebar.radio(
-            "Выберите модель для анализа:",
-            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "NVIDIA Nemotron-70B"],
-            key="model_selector_radio"  # Added unique key
-        )
-        
         if model_choice == "Groq (llama-3.1-70b)":
             if 'groq_key' not in st.secrets:
                 st.error("Groq API key not found in secrets. Please add it with the key 'groq_key'.")
@@ -464,8 +457,15 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.15):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.16):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
+        
+        model_choice = st.radio(
+            "Выберите модель для анализа:",
+            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "NVIDIA Nemotron-70B"],
+            key="model_selector"
+        )
+        
         st.markdown(
         """
         Использованы технологии:  
@@ -514,6 +514,11 @@ def main():
     if uploaded_file is not None and st.session_state.processed_df is None:
         start_time = time.time()
         
+
+        # Initialize LLM with selected model
+        llm = init_langchain_llm(model_choice)
+
+
         st.session_state.processed_df = process_file(uploaded_file)
 
         st.subheader("Предпросмотр данных")
@@ -524,7 +529,7 @@ def main():
         st.subheader("Анализ")
         st.dataframe(analysis_df)
         
-        llm = init_langchain_llm()
+       
         output = create_output_file(st.session_state.processed_df, uploaded_file, llm)
         
         end_time = time.time()
