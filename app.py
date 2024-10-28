@@ -153,10 +153,11 @@ def fuzzy_deduplicate(df, column, threshold=65):
 
 def init_langchain_llm():
     try:
-        # Get model selection from sidebar
+        # Get model selection from sidebar with unique key
         model_choice = st.sidebar.radio(
             "Выберите модель для анализа:",
-            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "NVIDIA Nemotron-70B"]
+            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "NVIDIA Nemotron-70B"],
+            key="model_selector_radio"  # Added unique key
         )
         
         if model_choice == "Groq (llama-3.1-70b)":
@@ -171,7 +172,7 @@ def init_langchain_llm():
                 temperature=0.0
             )
             
-        elif model_choice == "ChatGPT-4-mini":
+        elif model_choice == "ChatGPT-4o":
             if 'groq_key' not in st.secrets:
                 st.error("OpenAI API key not found in secrets. Please add it with the key 'groq_key'.")
                 st.stop()
@@ -463,7 +464,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.14):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.15):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         st.markdown(
         """
