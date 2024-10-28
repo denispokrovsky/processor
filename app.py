@@ -153,21 +153,49 @@ def fuzzy_deduplicate(df, column, threshold=65):
 
 def init_langchain_llm():
     try:
-        if 'groq_key' in st.secrets:
-            groq_api_key = st.secrets['groq_key']
-        else:
-            st.error("Groq API key not found in Hugging Face secrets. Please add it with the key 'groq_key'.")
-            st.stop()
-
-        llm = ChatOpenAI(
-            base_url="https://api.groq.com/openai/v1",
-            model="llama-3.1-70b-versatile",
-            openai_api_key=groq_api_key,  # Updated parameter name
-            temperature=0.0
+        # Get model selection from sidebar
+        model_choice = st.sidebar.radio(
+            "Выберите модель для анализа:",
+            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "NVIDIA Nemotron-70B"]
         )
-        return llm
+        
+        if model_choice == "Groq (llama-3.1-70b)":
+            if 'groq_key' not in st.secrets:
+                st.error("Groq API key not found in secrets. Please add it with the key 'groq_key'.")
+                st.stop()
+                
+            return ChatOpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                model="llama-3.1-70b-versatile",
+                openai_api_key=st.secrets['groq_key'],
+                temperature=0.0
+            )
+            
+        elif model_choice == "ChatGPT-4-mini":
+            if 'groq_key' not in st.secrets:
+                st.error("OpenAI API key not found in secrets. Please add it with the key 'groq_key'.")
+                st.stop()
+                
+            return ChatOpenAI(
+                model="gpt-4o",
+                openai_api_key=st.secrets['groq_key'],
+                temperature=0.0
+            )
+            
+        else:  # NVIDIA Nemotron-70B
+            if 'nvapi' not in st.secrets:
+                st.error("NVIDIA API key not found in secrets. Please add it with the key 'nvapi'.")
+                st.stop()
+                
+            return ChatOpenAI(
+                base_url="https://integrate.api.nvidia.com/v1",
+                model="nvidia/llama-3.1-nemotron-70b-instruct",
+                openai_api_key=st.secrets['nvapi'],
+                temperature=0.0
+            )
+            
     except Exception as e:
-        st.error(f"Error initializing the Groq LLM: {str(e)}")
+        st.error(f"Error initializing the LLM: {str(e)}")
         st.stop()
 
 def estimate_impact(llm, news_text, entity):
@@ -434,9 +462,8 @@ def create_output_file(df, uploaded_file, llm):
     return output
 
 def main():
-    
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.12b):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.13):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         st.markdown(
         """
@@ -447,13 +474,16 @@ def main():
         """,
         unsafe_allow_html=True)
 
-    
         with st.expander("ℹ️ Инструкция"):
             st.markdown("""
-            1. Загрузите Excel файл с новостями <br/>
-            2. Дождитесь завершения анализа <br/>
-            3. Скачайте результаты анализа в формате Excel <br/>
+            1. Выберите модель для анализа
+            2. Загрузите Excel файл с новостями <br/>
+            3. Дождитесь завершения анализа <br/>
+            4. Скачайте результаты анализа в формате Excel <br/>
             """, unsafe_allow_html=True)
+        
+        uploaded_file = st.file_uploader("Выбирайте Excel-файл", type="xlsx")
+
     
     st.markdown(
         """
