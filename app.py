@@ -266,6 +266,10 @@ def generate_sentiment_visualization(df):
     return fig
 
 def process_file(uploaded_file, model_choice):
+    #output_capture = StreamlitCapture()
+    old_stdout = sys.stdout
+    #sys.stdout = output_capture
+    
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
@@ -275,6 +279,12 @@ def process_file(uploaded_file, model_choice):
             st.error(f"Error: The following required columns are missing from the input file: {', '.join(missing_columns)}")
             st.stop()
     
+        # Initialize LLM
+        llm = init_langchain_llm(model_choice)
+        if not llm:
+            st.error("Не удалось инициализировать нейросеть. Пожалуйста, проверьте настройки и попробуйте снова.")
+            st.stop()
+
         # Deduplication
         original_news_count = len(df)
         df = df.groupby('Объект', group_keys=False).apply(
@@ -317,9 +327,33 @@ def process_file(uploaded_file, model_choice):
                                    impact if sentiment == "Negative" else None,
                                    reasoning if sentiment == "Negative" else None)
         
+       
+       # Generate all output files
+        st.write("Генерация отчета...")
+        
+        # 1. Generate Excel
+        excel_output = create_output_file(df, uploaded_file, llm)
+        
+        # 2. Generate PDF
+        #st.write("Создание PDF протокола...")
+        #pdf_data = generate_pdf_report(output_capture.texts)
+        
+        # Save PDF to disk
+        #if pdf_data:
+        #    with open("result.pdf", "wb") as f:
+        #        f.write(pdf_data)
+        #    st.success("PDF протокол сохранен как 'result.pdf'")
+        
+        # Show success message
+        #st.success(f"✅ Обработка и анализ завершены за умеренное время.")
+        
+        # Create download section
+        create_download_section(excel_output,"")
+        
         return df
         
     except Exception as e:
+        sys.stdout = old_stdout
         st.error(f"❌ Ошибка при обработке файла: {str(e)}")
         raise e
 
@@ -423,16 +457,34 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.18):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.17):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
-        # Model selection at the top level
         model_choice = st.radio(
             "Выберите модель для анализа:",
             ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "NVIDIA Nemotron-70B"],
             key="model_selector"
         )
         
+        st.markdown(
+        """
+        Использованы технологии:  
+        - Анализ естественного языка с помощью предтренированных нейросетей **BERT**,<br/>
+	    - Дополнительная обработка при помощи больших языковых моделей (**LLM**),<br/>
+	    - объединенные при помощи	фреймворка **LangChain**.<br>
+        """,
+        unsafe_allow_html=True)
+
+        # Model selection is now handled in init_langchain_llm()
+        
+        with st.expander("ℹ️ Инструкция"):
+            st.markdown("""
+            1. Выберите модель для анализа
+            2. Загрузите Excel файл с новостями <br/>
+            3. Дождитесь завершения анализа <br/>
+            4. Скачайте результаты анализа в формате Excel <br/>
+            """, unsafe_allow_html=True)
+    
         st.markdown(
         """
         <style>
@@ -451,35 +503,22 @@ def main():
         unsafe_allow_html=True
         )
 
-
-        st.markdown(
-        """
-        Использованы технологии:  
-        - Анализ естественного языка с помощью предтренированных нейросетей **BERT**,<br/>
-        - Дополнительная обработка при помощи больших языковых моделей (**LLM**),<br/>
-        - объединенные при помощи фреймворка **LangChain**.<br>
-        """,
-        unsafe_allow_html=True)
-
-        with st.expander("ℹ️ Инструкция"):
-            st.markdown("""
-            1. Выберите модель для анализа
-            2. Загрузите Excel файл с новостями <br/>
-            3. Дождитесь завершения анализа <br/>
-            4. Скачайте результаты анализа в формате Excel <br/>
-            """, unsafe_allow_html=True)
-    
     st.title("Анализ мониторинга новостей")
     
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
     
+    # Single file uploader with unique key
     uploaded_file = st.sidebar.file_uploader("Выбирайте Excel-файл", type="xlsx", key="unique_file_uploader")
     
     if uploaded_file is not None and st.session_state.processed_df is None:
         start_time = time.time()
         
-        # Pass model_choice to process_file
+
+        # Initialize LLM with selected model
+        llm = init_langchain_llm(model_choice)
+
+
         st.session_state.processed_df = process_file(uploaded_file, model_choice)
 
         st.subheader("Предпросмотр данных")
@@ -490,7 +529,7 @@ def main():
         st.subheader("Анализ")
         st.dataframe(analysis_df)
         
-        llm = init_langchain_llm(model_choice)
+       
         output = create_output_file(st.session_state.processed_df, uploaded_file, llm)
         
         end_time = time.time()
