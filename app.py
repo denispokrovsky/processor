@@ -120,8 +120,55 @@ def analyze_sentiment(text):
         return "Positive"
     return "Neutral"
 
+def analyze_sentiment(text):
+    finbert_result = get_mapped_sentiment(finbert(text, truncation=True, max_length=512)[0])
+    roberta_result = get_mapped_sentiment(roberta(text, truncation=True, max_length=512)[0])
+    finbert_tone_result = get_mapped_sentiment(finbert_tone(text, truncation=True, max_length=512)[0])
+    
+    # Count occurrences of each sentiment
+    sentiments = [finbert_result, roberta_result, finbert_tone_result]
+    sentiment_counts = {s: sentiments.count(s) for s in set(sentiments)}
+    
+    # Return sentiment if at least two models agree, otherwise return Neutral
+    for sentiment, count in sentiment_counts.items():
+        if count >= 2:
+            return sentiment
+    return "Neutral"
 
-def fuzzy_deduplicate(df, column, threshold=65):
+
+def detect_events(llm, text, entity):
+    template = """
+    Проанализируйте следующую новость о компании "{entity}" и определите наличие следующих событий:
+    1. Публикация отчетности и ключевые показатели (выручка, прибыль, EBITDA)
+    2. События на рынке ценных бумаг (погашение облигаций, выплата/невыплата купона, дефолт, реструктуризация)
+    3. Судебные иски или юридические действия против компании, акционеров, менеджеров
+
+    Новость: {text}
+
+    Ответьте в следующем формате:
+    Тип: ["Отчетность" или "РЦБ" или "Суд" или "Нет"]
+    Краткое описание: [краткое описание события на русском языке, не более 2 предложений]
+    """
+    
+    prompt = PromptTemplate(template=template, input_variables=["entity", "text"])
+    chain = prompt | llm
+    response = chain.invoke({"entity": entity, "text": text})
+    
+    event_type = "Нет"
+    summary = ""
+    
+    try:
+        response_text = response.content if hasattr(response, 'content') else str(response)
+        if "Тип:" in response_text and "Краткое описание:" in response_text:
+            type_part, summary_part = response_text.split("Краткое описание:")
+            event_type = type_part.split("Тип:")[1].strip()
+            summary = summary_part.strip()
+    except Exception as e:
+        st.warning(f"Ошибка при анализе событий: {str(e)}")
+    
+    return event_type, summary
+
+def fuzzy_deduplicate(df, column, threshold=50):
     seen_texts = []
     indices_to_keep = []
     for i, text in enumerate(df[column]):
@@ -273,96 +320,64 @@ def generate_sentiment_visualization(df):
     return fig
 
 def process_file(uploaded_file, model_choice):
-    #output_capture = StreamlitCapture()
-    old_stdout = sys.stdout
-    #sys.stdout = output_capture
-    
+    df = None
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
+        
+        # Validate required columns
         required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
-            st.error(f"Error: The following required columns are missing from the input file: {', '.join(missing_columns)}")
-            st.stop()
-    
-        # Initialize LLM
-        llm = init_langchain_llm(model_choice)
-        if not llm:
-            st.error("Не удалось инициализировать нейросеть. Пожалуйста, проверьте настройки и попробуйте снова.")
-            st.stop()
+            st.error(f"Error: The following required columns are missing: {', '.join(missing_columns)}")
+            return df if df is not None else None
 
-        # Deduplication
-        original_news_count = len(df)
-        df = df.groupby('Объект', group_keys=False).apply(
-            lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
-        ).reset_index(drop=True)
-    
-        remaining_news_count = len(df)
-        duplicates_removed = original_news_count - remaining_news_count
-        st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
-
-        # Initialize progress
+        # Initialize progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
-    
-        # Process each news item
+        
+        # Initialize new columns
         df['Translated'] = ''
         df['Sentiment'] = ''
         df['Impact'] = ''
         df['Reasoning'] = ''
-    
+        df['Event_Type'] = ''
+        df['Event_Summary'] = ''
+        
+        # Process each news item
         for index, row in df.iterrows():
-            translated_text = translate_text(llm, row['Выдержки из текста'])
-            df.at[index, 'Translated'] = translated_text
-            
-            sentiment = analyze_sentiment(translated_text)
-            df.at[index, 'Sentiment'] = sentiment
-            
-            if sentiment == "Negative":
-                impact, reasoning = estimate_impact(llm, translated_text, row['Объект'])
-                df.at[index, 'Impact'] = impact
-                df.at[index, 'Reasoning'] = reasoning
-            
-            # Update progress
-            progress = (index + 1) / len(df)
-            progress_bar.progress(progress)
-            status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
-            
-            # Display results with color coding
-            display_sentiment_results(row, sentiment, 
-                                   impact if sentiment == "Negative" else None,
-                                   reasoning if sentiment == "Negative" else None)
-        
-       
-       # Generate all output files
-        st.write("Генерация отчета...")
-        
-        # 1. Generate Excel
-        excel_output = create_output_file(df, uploaded_file, llm)
-        
-        # 2. Generate PDF
-        #st.write("Создание PDF протокола...")
-        #pdf_data = generate_pdf_report(output_capture.texts)
-        
-        # Save PDF to disk
-        #if pdf_data:
-        #    with open("result.pdf", "wb") as f:
-        #        f.write(pdf_data)
-        #    st.success("PDF протокол сохранен как 'result.pdf'")
-        
-        # Show success message
-        #st.success(f"✅ Обработка и анализ завершены за умеренное время.")
-        
-        # Create download section
-        create_download_section(excel_output,"")
+            try:
+                # Translate and analyze sentiment
+                translated_text = translate_text(llm, row['Выдержки из текста'])
+                df.at[index, 'Translated'] = translated_text
+                
+                sentiment = analyze_sentiment(translated_text)
+                df.at[index, 'Sentiment'] = sentiment
+                
+                # Detect events
+                event_type, event_summary = detect_events(llm, row['Выдержки из текста'], row['Объект'])
+                df.at[index, 'Event_Type'] = event_type
+                df.at[index, 'Event_Summary'] = event_summary
+                
+                if sentiment == "Negative":
+                    impact, reasoning = estimate_impact(llm, translated_text, row['Объект'])
+                    df.at[index, 'Impact'] = impact
+                    df.at[index, 'Reasoning'] = reasoning
+                
+                # Update progress
+                progress = (index + 1) / len(df)
+                progress_bar.progress(progress)
+                status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
+                
+            except Exception as e:
+                st.warning(f"Ошибка при обработке новости {index + 1}: {str(e)}")
+                continue
         
         return df
         
     except Exception as e:
-        sys.stdout = old_stdout
         st.error(f"❌ Ошибка при обработке файла: {str(e)}")
-        raise e
+        return df if df is not None else None
 
 def create_analysis_data(df):
     analysis_data = []
@@ -388,74 +403,90 @@ def create_analysis_data(df):
 def create_output_file(df, uploaded_file, llm):
     wb = load_workbook("sample_file.xlsx")
     
-    # Sort entities by number of negative publications
-    entity_stats = pd.DataFrame({
-        'Объект': df['Объект'].unique(),
-        'Всего': df.groupby('Объект').size(),
-        'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int),
-        'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
-    }).sort_values('Негативные', ascending=False)
-    
-    # Calculate most negative impact for each entity
-    entity_impacts = {}
-    for entity in df['Объект'].unique():
-        entity_df = df[df['Объект'] == entity]
-        negative_impacts = entity_df[entity_df['Sentiment'] == 'Negative']['Impact']
-        entity_impacts[entity] = negative_impacts.iloc[0] if len(negative_impacts) > 0 else 'Неопределенный эффект'
-    
-    # Update 'Сводка' sheet
-    ws = wb['Сводка']
-    for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
-        ws.cell(row=idx, column=5, value=entity)  # Column E
-        ws.cell(row=idx, column=6, value=row['Всего'])  # Column F
-        ws.cell(row=idx, column=7, value=row['Негативные'])  # Column G
-        ws.cell(row=idx, column=8, value=row['Позитивные'])  # Column H
-        ws.cell(row=idx, column=9, value=entity_impacts[entity])  # Column I
-    
-    # Update 'Значимые' sheet
-    ws = wb['Значимые']
-    row_idx = 3
-    for _, row in df.iterrows():
-        if row['Sentiment'] in ['Negative', 'Positive']:
-            ws.cell(row=row_idx, column=3, value=row['Объект'])  # Column C
-            ws.cell(row=row_idx, column=4, value='релевантно')   # Column D
-            ws.cell(row=row_idx, column=5, value=row['Sentiment']) # Column E
-            ws.cell(row=row_idx, column=6, value=row['Impact'])   # Column F
-            ws.cell(row=row_idx, column=7, value=row['Заголовок']) # Column G
-            ws.cell(row=row_idx, column=8, value=row['Выдержки из текста']) # Column H
+    try:
+        # Update 'Мониторинг' sheet with events
+        ws = wb['Мониторинг']
+        row_idx = 4
+        for _, row in df.iterrows():
+            if row['Event_Type'] != 'Нет':
+                ws.cell(row=row_idx, column=5, value=row['Объект'])  # Column E
+                ws.cell(row=row_idx, column=6, value=row['Заголовок'])  # Column F
+                ws.cell(row=row_idx, column=7, value=row['Event_Type'])  # Column G
+                ws.cell(row=row_idx, column=8, value=row['Event_Summary'])  # Column H
+                ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])  # Column I
+                row_idx += 1
+                   
+        # Sort entities by number of negative publications
+        entity_stats = pd.DataFrame({
+            'Объект': df['Объект'].unique(),
+            'Всего': df.groupby('Объект').size(),
+            'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int),
+            'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
+        }).sort_values('Негативные', ascending=False)
+        
+        # Calculate most negative impact for each entity
+        entity_impacts = {}
+        for entity in df['Объект'].unique():
+            entity_df = df[df['Объект'] == entity]
+            negative_impacts = entity_df[entity_df['Sentiment'] == 'Negative']['Impact']
+            entity_impacts[entity] = negative_impacts.iloc[0] if len(negative_impacts) > 0 else 'Неопределенный эффект'
+        
+        # Update 'Сводка' sheet
+        ws = wb['Сводка']
+        for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
+            ws.cell(row=idx, column=5, value=entity)  # Column E
+            ws.cell(row=idx, column=6, value=row['Всего'])  # Column F
+            ws.cell(row=idx, column=7, value=row['Негативные'])  # Column G
+            ws.cell(row=idx, column=8, value=row['Позитивные'])  # Column H
+            ws.cell(row=idx, column=9, value=entity_impacts[entity])  # Column I
+        
+        # Update 'Значимые' sheet
+        ws = wb['Значимые']
+        row_idx = 3
+        for _, row in df.iterrows():
+            if row['Sentiment'] in ['Negative', 'Positive']:
+                ws.cell(row=row_idx, column=3, value=row['Объект'])  # Column C
+                ws.cell(row=row_idx, column=4, value='релевантно')   # Column D
+                ws.cell(row=row_idx, column=5, value=row['Sentiment']) # Column E
+                ws.cell(row=row_idx, column=6, value=row['Impact'])   # Column F
+                ws.cell(row=row_idx, column=7, value=row['Заголовок']) # Column G
+                ws.cell(row=row_idx, column=8, value=row['Выдержки из текста']) # Column H
+                row_idx += 1
+        
+        # Copy 'Публикации' sheet
+        original_df = pd.read_excel(uploaded_file, sheet_name='Публикации')
+        ws = wb['Публикации']
+        for r_idx, row in enumerate(dataframe_to_rows(original_df, index=False, header=True), start=1):
+            for c_idx, value in enumerate(row, start=1):
+                ws.cell(row=r_idx, column=c_idx, value=value)
+        
+        # Update 'Анализ' sheet
+        ws = wb['Анализ']
+        row_idx = 4
+        for _, row in df[df['Sentiment'] == 'Negative'].iterrows():
+            ws.cell(row=row_idx, column=5, value=row['Объект'])  # Column E
+            ws.cell(row=row_idx, column=6, value=row['Заголовок'])  # Column F
+            ws.cell(row=row_idx, column=7, value="Риск убытка")  # Column G
+            
+            # Translate reasoning if it exists
+            if pd.notna(row['Reasoning']):
+                translated_reasoning = translate_reasoning_to_russian(llm, row['Reasoning'])
+                ws.cell(row=row_idx, column=8, value=translated_reasoning)  # Column H
+            
+            ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])  # Column I
             row_idx += 1
-    
-    # Copy 'Публикации' sheet
-    original_df = pd.read_excel(uploaded_file, sheet_name='Публикации')
-    ws = wb['Публикации']
-    for r_idx, row in enumerate(dataframe_to_rows(original_df, index=False, header=True), start=1):
-        for c_idx, value in enumerate(row, start=1):
-            ws.cell(row=r_idx, column=c_idx, value=value)
-    
-    # Update 'Анализ' sheet
-    ws = wb['Анализ']
-    row_idx = 4
-    for _, row in df[df['Sentiment'] == 'Negative'].iterrows():
-        ws.cell(row=row_idx, column=5, value=row['Объект'])  # Column E
-        ws.cell(row=row_idx, column=6, value=row['Заголовок'])  # Column F
-        ws.cell(row=row_idx, column=7, value="Риск убытка")  # Column G
         
-        # Translate reasoning if it exists
-        if pd.notna(row['Reasoning']):
-            translated_reasoning = translate_reasoning_to_russian(llm, row['Reasoning'])
-            ws.cell(row=row_idx, column=8, value=translated_reasoning)  # Column H
-        
-        ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])  # Column I
-        row_idx += 1
+        # Update 'Тех.приложение' sheet
+        tech_df = df[['Объект', 'Заголовок', 'Выдержки из текста', 'Translated', 'Sentiment', 'Impact', 'Reasoning']]
+        if 'Тех.приложение' not in wb.sheetnames:
+            wb.create_sheet('Тех.приложение')
+        ws = wb['Тех.приложение']
+        for r_idx, row in enumerate(dataframe_to_rows(tech_df, index=False, header=True), start=1):
+            for c_idx, value in enumerate(row, start=1):
+                ws.cell(row=r_idx, column=c_idx, value=value)
     
-    # Update 'Тех.приложение' sheet
-    tech_df = df[['Объект', 'Заголовок', 'Выдержки из текста', 'Translated', 'Sentiment', 'Impact', 'Reasoning']]
-    if 'Тех.приложение' not in wb.sheetnames:
-        wb.create_sheet('Тех.приложение')
-    ws = wb['Тех.приложение']
-    for r_idx, row in enumerate(dataframe_to_rows(tech_df, index=False, header=True), start=1):
-        for c_idx, value in enumerate(row, start=1):
-            ws.cell(row=r_idx, column=c_idx, value=value)
+    except Exception as e:
+        st.warning(f"Ошибка при создании выходного файла: {str(e)}")
     
     output = io.BytesIO()
     wb.save(output)
@@ -464,7 +495,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.22):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.30):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
@@ -532,6 +563,19 @@ def main():
         preview_df = st.session_state.processed_df[['Объект', 'Заголовок', 'Sentiment', 'Impact']].head()
         st.dataframe(preview_df)
         
+        # Add preview of Monitoring results
+        st.subheader("Предпросмотр мониторинга событий и риск-факторов эмитентов")
+        monitoring_df = st.session_state.processed_df[
+            (st.session_state.processed_df['Event_Type'] != 'Нет') & 
+            (st.session_state.processed_df['Event_Type'].notna())
+        ][['Объект', 'Заголовок', 'Event_Type', 'Event_Summary']].head()
+        
+        if len(monitoring_df) > 0:
+            st.dataframe(monitoring_df)
+        else:
+            st.info("Не обнаружено значимых событий для мониторинга")
+
+
         analysis_df = create_analysis_data(st.session_state.processed_df)
         st.subheader("Анализ")
         st.dataframe(analysis_df)
