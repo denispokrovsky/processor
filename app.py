@@ -331,6 +331,17 @@ def process_file(uploaded_file, model_choice):
         if missing_columns:
             st.error(f"Error: The following required columns are missing: {', '.join(missing_columns)}")
             return df if df is not None else None
+        
+        # Deduplication
+        original_news_count = len(df)
+        df = df.groupby('Объект', group_keys=False).apply(
+            lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
+        ).reset_index(drop=True)
+    
+        remaining_news_count = len(df)
+        duplicates_removed = original_news_count - remaining_news_count
+        st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
+
 
         # Initialize progress tracking
         progress_bar = st.progress(0)
