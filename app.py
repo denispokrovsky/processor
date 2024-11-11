@@ -32,8 +32,8 @@ class FallbackLLMSystem:
     def __init__(self):
         """Initialize fallback models for event detection and reasoning"""
         try:
-            # Initialize BLOOMZ model for Russian text processing
-            self.model_name = "bigscience/bloomz-560m"  # Smaller version for efficiency
+            # Initialize MT5 model (multilingual T5)
+            self.model_name = "google/mt5-small"  # Smaller, efficient multilingual model
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
             
@@ -41,46 +41,53 @@ class FallbackLLMSystem:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             self.model = self.model.to(self.device)
             
-            # Initialize pipeline
-            self.pipeline = pipeline(
-                "text2text-generation",
-                model=self.model,
-                tokenizer=self.tokenizer,
-                device=0 if self.device == "cuda" else -1
-            )
+            st.success(f"Successfully initialized MT5 model on {self.device}")
             
         except Exception as e:
-            st.error(f"Error initializing fallback LLM system: {str(e)}")
+            st.error(f"Error initializing MT5: {str(e)}")
+            raise
+
+    def _generate_text(self, prompt):
+        """Internal method for text generation with MT5"""
+        try:
+            inputs = self.tokenizer(
+                prompt,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=512
+            ).to(self.device)
+            
+            outputs = self.model.generate(
+                **inputs,
+                max_length=200,
+                num_return_sequences=1,
+                do_sample=False,
+                pad_token_id=self.tokenizer.pad_token_id
+            )
+            
+            return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        except Exception as e:
+            st.warning(f"Text generation error: {str(e)}")
             raise
 
     def detect_events(self, text, entity):
-        """Detect events using the fallback model"""
-        prompt = f"""Задача: Проанализируйте новость о компании и определите тип события.
-        
-        Компания: {entity}
-        Новость: {text}
-        
-        Возможные типы событий:
-        - Отчетность (публикация финансовых результатов)
-        - РЦБ (события с облигациями или акциями)
-        - Суд (судебные иски)
-        - Нет (нет значимых событий)
-        
-        Формат ответа:
-        Тип: [тип события]
-        Краткое описание: [описание в двух предложениях]
-        
-        Ответ:"""
+        """Detect events using MT5"""
+        prompt = f"""Task: Analyze news about company and determine event type.
+        Company: {entity}
+        News: {text}
+        Event types:
+        - Отчетность (financial reports)
+        - РЦБ (securities market events)
+        - Суд (legal actions)
+        - Нет (no significant events)
+        Format:
+        Тип: [event type]
+        Краткое описание: [two sentence description]"""
         
         try:
-            response = self.pipeline(
-                prompt,
-                max_length=200,
-                num_return_sequences=1,
-                do_sample=False
-            )[0]['generated_text']
+            response = self._generate_text(prompt)
             
-            # Parse response
             event_type = "Нет"
             summary = ""
             
@@ -92,36 +99,26 @@ class FallbackLLMSystem:
             return event_type, summary
             
         except Exception as e:
-            st.warning(f"Error in fallback event detection: {str(e)}")
-            return "Нет", ""
+            st.warning(f"Event detection error: {str(e)}")
+            return "Нет", "Ошибка анализа"
 
     def estimate_impact(self, text, entity):
-        """Estimate impact using the fallback model"""
-        prompt = f"""Задача: Оцените влияние новости на компанию.
-        
-        Компания: {entity}
-        Новость: {text}
-        
-        Возможные категории влияния:
+        """Estimate impact using MT5"""
+        prompt = f"""Task: Analyze news impact on company.
+        Company: {entity}
+        News: {text}
+        Impact categories:
         - Значительный риск убытков
         - Умеренный риск убытков
         - Незначительный риск убытков
         - Вероятность прибыли
         - Неопределенный эффект
-        
-        Формат ответа:
-        Impact: [категория]
-        Reasoning: [объяснение в двух предложениях]
-        
-        Ответ:"""
+        Format:
+        Impact: [category]
+        Reasoning: [two sentence explanation]"""
         
         try:
-            response = self.pipeline(
-                prompt,
-                max_length=200,
-                num_return_sequences=1,
-                do_sample=False
-            )[0]['generated_text']
+            response = self._generate_text(prompt)
             
             impact = "Неопределенный эффект"
             reasoning = "Не удалось определить влияние"
@@ -134,7 +131,7 @@ class FallbackLLMSystem:
             return impact, reasoning
             
         except Exception as e:
-            st.warning(f"Error in fallback impact estimation: {str(e)}")
+            st.warning(f"Impact estimation error: {str(e)}")
             return "Неопределенный эффект", "Ошибка анализа"
         
 
@@ -728,15 +725,16 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.44 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.45):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
 
         
         model_choice = st.radio(
             "Выберите модель для анализа:",
-            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Qwen-Max", "Local-BLOOMZ"],
-            key="model_selector"
+            ["Local-MT5", "Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Qwen-Max"],
+            key="model_selector",
+            help="Local-MT5 работает без API ключей и ограничений"
         )
     
         st.markdown(
