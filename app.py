@@ -9,7 +9,6 @@ import os
 from openpyxl import load_workbook
 from langchain.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
-from transformers import pipeline, AutoModelForSeq2SeqGeneration, AutoTokenizer
 from io import StringIO, BytesIO
 import sys
 import contextlib
@@ -21,6 +20,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import Optional
 from deep_translator import GoogleTranslator
 from googletrans import Translator as LegacyTranslator
+from transformers import (
+    pipeline, 
+    AutoModelForSeq2SeqLM, 
+    AutoTokenizer,
+    AutoModelForCausalLM  # Added as alternative
+)
 
 
 class FallbackLLMSystem:
@@ -30,7 +35,7 @@ class FallbackLLMSystem:
             # Initialize BLOOMZ model for Russian text processing
             self.model_name = "bigscience/bloomz-560m"  # Smaller version for efficiency
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModelForSeq2SeqGeneration.from_pretrained(self.model_name)
+            self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
             
             # Set device
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -723,7 +728,7 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.43 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.44 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
 
