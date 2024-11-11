@@ -21,3 +21,4 @@ Jinja2==3.1.2
 langchain_openai
 optimum
 googletrans
+deep_translator
