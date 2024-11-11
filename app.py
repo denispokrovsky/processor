@@ -590,7 +590,7 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.41 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.42 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
