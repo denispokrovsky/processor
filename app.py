@@ -27,14 +27,18 @@ from googletrans import Translator as LegacyTranslator
 class TranslationSystem:
     def __init__(self, batch_size=5):
         """
-        Initialize translation system using only deep-translator.
+        Initialize translation system using Helsinki NLP model.
         """
-        self.batch_size = batch_size
-        self.translator = GoogleTranslator(source='russian', target='english')  # Using full language names
+        try:
+            self.translator = pipeline("translation", model="Helsinki-NLP/opus-mt-ru-en")  # Note: ru-en for Russian to English
+            self.batch_size = batch_size
+        except Exception as e:
+            st.error(f"Error initializing Helsinki NLP translator: {str(e)}")
+            raise
     
     def translate_text(self, text):
         """
-        Translate single text using deep-translator with chunking for long texts.
+        Translate single text using Helsinki NLP model with chunking for long texts.
         """
         if pd.isna(text) or not isinstance(text, str) or not text.strip():
             return text
@@ -44,33 +48,73 @@ class TranslationSystem:
             return text
             
         try:
-            # deep-translator has a character limit, so we need to chunk long texts
-            max_chunk_size = 4500  # Deep translator limit is 5000, using 4500 to be safe
+            # Helsinki NLP model typically has a max length limit
+            max_chunk_size = 512  # Standard transformer length
             
-            if len(text) <= max_chunk_size:
-                return self.translator.translate(text=text)
+            if len(text.split()) <= max_chunk_size:
+                # Direct translation for short texts
+                result = self.translator(text, max_length=512)
+                return result[0]['translation_text']
             
-            # Split long text into chunks
-            chunks = [text[i:i + max_chunk_size] for i in range(0, len(text), max_chunk_size)]
+            # Split long text into chunks by sentences
+            chunks = self._split_into_chunks(text, max_chunk_size)
             translated_chunks = []
             
             for chunk in chunks:
-                translated_chunk = self.translator.translate(text=chunk)
-                translated_chunks.append(translated_chunk)
-                time.sleep(0.5)  # Small delay between chunks
+                result = self.translator(chunk, max_length=512)
+                translated_chunks.append(result[0]['translation_text'])
+                time.sleep(0.1)  # Small delay between chunks
                 
             return ' '.join(translated_chunks)
             
         except Exception as e:
             st.warning(f"Translation error: {str(e)}. Using original text.")
             return text
+            
+    def _split_into_chunks(self, text, max_length):
+        """
+        Split text into chunks by sentences, respecting max length.
+        """
+        # Simple sentence splitting by common punctuation
+        sentences = [s.strip() for s in text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
+        
+        chunks = []
+        current_chunk = []
+        current_length = 0
+        
+        for sentence in sentences:
+            sentence_length = len(sentence.split())
+            
+            if current_length + sentence_length > max_length:
+                if current_chunk:
+                    chunks.append(' '.join(current_chunk))
+                current_chunk = [sentence]
+                current_length = sentence_length
+            else:
+                current_chunk.append(sentence)
+                current_length += sentence_length
+        
+        if current_chunk:
+            chunks.append(' '.join(current_chunk))
+            
+        return chunks
+    
 
-def process_file(uploaded_file, model_choice, translation_method=None):  # Added translation_method parameter with default None
+
+def process_file(uploaded_file, model_choice, translation_method=None):
     df = None
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
-        translator = TranslationSystem(batch_size=5)  # We'll use deep-translator regardless of translation_method
+        translator = TranslationSystem(batch_size=5)
+        
+        # Initialize all required columns first
+        df['Translated'] = ''
+        df['Sentiment'] = ''
+        df['Impact'] = ''
+        df['Reasoning'] = ''
+        df['Event_Type'] = ''
+        df['Event_Summary'] = ''
         
         # Validate required columns
         required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
@@ -93,14 +137,6 @@ def process_file(uploaded_file, model_choice, translation_method=None):  # Added
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Initialize new columns
-        df['Translated'] = ''
-        df['Sentiment'] = ''
-        df['Impact'] = ''
-        df['Reasoning'] = ''
-        df['Event_Type'] = ''
-        df['Event_Summary'] = ''
-        
         # Process in batches
         batch_size = 5
         for i in range(0, len(df), batch_size):
@@ -108,7 +144,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):  # Added
             
             for idx, row in batch_df.iterrows():
                 try:
-                    # Translation
+                    # Translation with Helsinki NLP
                     translated_text = translator.translate_text(row['Выдержки из текста'])
                     df.at[idx, 'Translated'] = translated_text
                     
@@ -116,7 +152,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):  # Added
                     sentiment = analyze_sentiment(translated_text)
                     df.at[idx, 'Sentiment'] = sentiment
                     
-                    # Event detection with rate limit handling
+                    # Event detection
                     event_type, event_summary = detect_events(
                         llm,
                         row['Выдержки из текста'],
@@ -554,7 +590,7 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.40 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.41 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
@@ -563,14 +599,7 @@ def main():
             key="model_selector"
         )
         
-        # We'll keep this for compatibility but it won't affect the translation method
-        translation_method = st.radio(
-            "Выберите метод перевода:",
-            ["googletrans", "llm"],
-            key="translation_selector",
-            help="Используется deep-translator независимо от выбора"
-        )
-        
+       
         st.markdown(
         """
         Использованы технологии:  
