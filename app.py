@@ -649,7 +649,7 @@ def main():
         st.session_state.processed_df = process_file(
             uploaded_file,
             model_choice,
-            translation_method  # This parameter won't affect the translation method but keeps the interface consistent
+            translation_method = 'auto' # This parameter won't affect the translation method but keeps the interface consistent
         )
     
         st.subheader("Предпросмотр данных")
