@@ -19,8 +19,9 @@ from jinja2 import Template
 import time
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import Optional
-from deep_translator import GoogleTranslator as DeepGoogleTranslator
+from deep_translator import GoogleTranslator
 from googletrans import Translator as LegacyTranslator
+
 
 
 class TranslationSystem:
@@ -553,7 +554,7 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.39 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.40 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
