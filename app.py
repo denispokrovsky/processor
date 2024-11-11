@@ -28,28 +28,24 @@ class TranslationSystem:
         Initialize translation system with multiple fallback options.
         
         Args:
-            method (str): 'auto', 'deep-google', or 'llm'
-            llm: LangChain LLM instance (required if method is 'llm')
-            batch_size (int): Number of texts to process in each batch
+            method: str - Translation method to use ('auto', 'deep-google', or 'llm')
+            llm: Optional LangChain LLM instance
+            batch_size: int - Number of texts to process in each batch
         """
         self.method = method
         self.llm = llm
         self.batch_size = batch_size
-        self.rate_limiter = RateLimitHandler()
         self.translator = None
         self._initialize_translator()
         
     def _initialize_translator(self):
-        """
-        Initialize translator with fallback options.
-        """
         if self.method == 'llm':
             if not self.llm:
                 raise Exception("LLM must be provided when using 'llm' method")
             return
             
         try:
-            # Try deep-translator first (more stable)
+            # Try deep-translator first
             self.translator = DeepGoogleTranslator()
             self.method = 'deep-google'
             # Test translation
@@ -60,7 +56,7 @@ class TranslationSystem:
         except Exception as deep_e:
             st.warning(f"Deep-translator initialization failed: {str(deep_e)}")
             
-            if self.method != 'llm' and self.llm:
+            if self.llm:
                 st.info("Falling back to LLM translation")
                 self.method = 'llm'
             else:
@@ -77,29 +73,31 @@ class TranslationSystem:
             
             for text in batch:
                 try:
-                    translation = self.rate_limiter.execute_with_retry(
-                        self._translate_single_text,
-                        text,
-                        src,
-                        dest
-                    )
+                    if not isinstance(text, str):
+                        batch_translations.append(str(text))
+                        continue
+                        
+                    translation = self._translate_single_text(text, src, dest)
                     batch_translations.append(translation)
+                    
                 except Exception as e:
                     st.warning(f"Translation error: {str(e)}. Using original text.")
                     batch_translations.append(text)
                     
-                    # If deep-google fails, try falling back to LLM
-                    if self.method == 'deep-google' and self.llm:
+                    # Try LLM fallback if available
+                    if self.method != 'llm' and self.llm:
                         try:
                             st.info("Attempting LLM translation fallback...")
+                            temp_method = self.method
                             self.method = 'llm'
                             translation = self._translate_single_text(text, src, dest)
-                            batch_translations[-1] = translation  # Replace original text with translation
+                            batch_translations[-1] = translation
+                            self.method = temp_method
                         except Exception as llm_e:
                             st.warning(f"LLM fallback failed: {str(llm_e)}")
-                            
+                    
             translations.extend(batch_translations)
-            time.sleep(1)  # Small delay between batches
+            time.sleep(1)
             
         return translations
     
@@ -183,16 +181,17 @@ def init_translation_system(model_choice, translation_method='auto'):
         st.error(f"Failed to initialize translation system: {str(e)}")
         raise
 
-def process_file(uploaded_file, model_choice, translation_method='googletrans'):
+def process_file(uploaded_file, model_choice, translation_method='auto'):
     df = None
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
         
-        # In your process_file function:
-        translator = init_translation_system(
-            model_choice=model_choice,
-            translation_method='auto'  # Will try deep-translator first, then fall back to LLM if needed
+        # Initialize translation system
+        translator = TranslationSystem(
+            method=translation_method,  # Remove quotes from parameter name
+            llm=llm,
+            batch_size=5
         )
         
         # Validate required columns
@@ -200,7 +199,7 @@ def process_file(uploaded_file, model_choice, translation_method='googletrans'):
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             st.error(f"Error: The following required columns are missing: {', '.join(missing_columns)}")
-            return df if df is not None else None
+            return None
         
         # Deduplication
         original_news_count = len(df)
@@ -224,33 +223,56 @@ def process_file(uploaded_file, model_choice, translation_method='googletrans'):
         df['Event_Type'] = ''
         df['Event_Summary'] = ''
         
-        # Process each news item
-        for index, row in df.iterrows():
+        # Process in batches
+        batch_size = 5
+        for i in range(0, len(df), batch_size):
+            batch_df = df.iloc[i:i+batch_size]
+            
             try:
-                # Translate and analyze sentiment
-                translated_text = translator.translate_text(row['Выдержки из текста'])
-                df.at[index, 'Translated'] = translated_text
+                # Translate batch
+                texts_to_translate = batch_df['Выдержки из текста'].tolist()
+                translations = translator.translate_batch(texts_to_translate)
+                df.loc[df.index[i:i+batch_size], 'Translated'] = translations
                 
-                sentiment = analyze_sentiment(translated_text)
-                df.at[index, 'Sentiment'] = sentiment
-                
-                # Detect events
-                event_type, event_summary = detect_events(llm, row['Выдержки из текста'], row['Объект'])
-                df.at[index, 'Event_Type'] = event_type
-                df.at[index, 'Event_Summary'] = event_summary
-                
-                if sentiment == "Negative":
-                    impact, reasoning = estimate_impact(llm, translated_text, row['Объект'])
-                    df.at[index, 'Impact'] = impact
-                    df.at[index, 'Reasoning'] = reasoning
-                
-                # Update progress
-                progress = (index + 1) / len(df)
-                progress_bar.progress(progress)
-                status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
+                # Process each item in batch
+                for j, (idx, row) in enumerate(batch_df.iterrows()):
+                    try:
+                        # Analyze sentiment with rate limit handling
+                        sentiment = analyze_sentiment(translations[j])
+                        df.at[idx, 'Sentiment'] = sentiment
+                        
+                        # Detect events with rate limit handling
+                        event_type, event_summary = detect_events(
+                            llm,
+                            row['Выдержки из текста'],
+                            row['Объект']
+                        )
+                        df.at[idx, 'Event_Type'] = event_type
+                        df.at[idx, 'Event_Summary'] = event_summary
+                        
+                        if sentiment == "Negative":
+                            impact, reasoning = estimate_impact(
+                                llm,
+                                translations[j],
+                                row['Объект']
+                            )
+                            df.at[idx, 'Impact'] = impact
+                            df.at[idx, 'Reasoning'] = reasoning
+                        
+                        # Update progress
+                        progress = (i + j + 1) / len(df)
+                        progress_bar.progress(progress)
+                        status_text.text(f"Проанализировано {i + j + 1} из {len(df)} новостей")
+                        
+                    except Exception as e:
+                        st.warning(f"Ошибка при обработке новости {idx + 1}: {str(e)}")
+                        continue
+                    
+                # Add delay between batches to avoid rate limits
+                time.sleep(2)
                 
             except Exception as e:
-                st.warning(f"Ошибка при обработке новости {index + 1}: {str(e)}")
+                st.warning(f"Ошибка при обработке батча {i//batch_size + 1}: {str(e)}")
                 continue
         
         return df
@@ -655,7 +677,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.35 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.36 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
