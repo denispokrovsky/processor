@@ -16,135 +16,172 @@ import contextlib
 from langchain_openai import ChatOpenAI  # Updated import
 import pdfkit
 from jinja2 import Template
-from googletrans import Translator as GoogleTranslator
 import time
+from tenacity import retry, stop_after_attempt, wait_exponential
+from typing import Optional
+from deep_translator import GoogleTranslator as DeepGoogleTranslator
+from googletrans import Translator as LegacyTranslator
 
 class TranslationSystem:
-    def __init__(self, method='googletrans', llm=None):
+    def __init__(self, method='auto', llm=None, batch_size=10):
         """
-        Initialize translation system with specified method.
+        Initialize translation system with multiple fallback options.
         
         Args:
-            method (str): 'googletrans' or 'llm'
+            method (str): 'auto', 'deep-google', or 'llm'
             llm: LangChain LLM instance (required if method is 'llm')
+            batch_size (int): Number of texts to process in each batch
         """
         self.method = method
         self.llm = llm
-        if method == 'googletrans':
-            try:
-                self.google_translator = GoogleTranslator()
-                # Test the translator with a simple string
-                self.google_translator.translate('test', src='en', dest='ru')
-            except Exception as e:
-                st.warning(f"Error initializing Google Translator: {str(e)}. Falling back to LLM translation.")
-                self.method = 'llm'
-        else:
-            self.google_translator = None
+        self.batch_size = batch_size
+        self.rate_limiter = RateLimitHandler()
+        self.translator = None
+        self._initialize_translator()
         
-    def translate_text(self, text, src='ru', dest='en'):
+    def _initialize_translator(self):
         """
-        Translate text using the selected translation method.
-        
-        Args:
-            text (str): Text to translate
-            src (str): Source language code
-            dest (str): Destination language code
+        Initialize translator with fallback options.
+        """
+        if self.method == 'llm':
+            if not self.llm:
+                raise Exception("LLM must be provided when using 'llm' method")
+            return
             
-        Returns:
-            str: Translated text
+        try:
+            # Try deep-translator first (more stable)
+            self.translator = DeepGoogleTranslator()
+            self.method = 'deep-google'
+            # Test translation
+            test_result = self.translator.translate(text='test', source='en', target='ru')
+            if not test_result:
+                raise Exception("Deep translator test failed")
+                
+        except Exception as deep_e:
+            st.warning(f"Deep-translator initialization failed: {str(deep_e)}")
+            
+            if self.method != 'llm' and self.llm:
+                st.info("Falling back to LLM translation")
+                self.method = 'llm'
+            else:
+                raise Exception("No translation method available")
+
+    def translate_batch(self, texts, src='ru', dest='en'):
+        """
+        Translate a batch of texts with fallback options.
+        """
+        translations = []
+        for i in range(0, len(texts), self.batch_size):
+            batch = texts[i:i + self.batch_size]
+            batch_translations = []
+            
+            for text in batch:
+                try:
+                    translation = self.rate_limiter.execute_with_retry(
+                        self._translate_single_text,
+                        text,
+                        src,
+                        dest
+                    )
+                    batch_translations.append(translation)
+                except Exception as e:
+                    st.warning(f"Translation error: {str(e)}. Using original text.")
+                    batch_translations.append(text)
+                    
+                    # If deep-google fails, try falling back to LLM
+                    if self.method == 'deep-google' and self.llm:
+                        try:
+                            st.info("Attempting LLM translation fallback...")
+                            self.method = 'llm'
+                            translation = self._translate_single_text(text, src, dest)
+                            batch_translations[-1] = translation  # Replace original text with translation
+                        except Exception as llm_e:
+                            st.warning(f"LLM fallback failed: {str(llm_e)}")
+                            
+            translations.extend(batch_translations)
+            time.sleep(1)  # Small delay between batches
+            
+        return translations
+    
+    def _translate_single_text(self, text, src='ru', dest='en'):
+        """
+        Translate a single text with appropriate method.
         """
         if pd.isna(text) or not isinstance(text, str) or not text.strip():
             return text
             
+        text = text.strip()
+        
+        if self.method == 'llm':
+            return self._translate_with_llm(text, src, dest)
+        elif self.method == 'deep-google':
+            return self._translate_with_deep_google(text, src, dest)
+        else:
+            raise Exception(f"Unsupported translation method: {self.method}")
+            
+    def _translate_with_deep_google(self, text, src='ru', dest='en'):
+        """
+        Translate using deep-translator's Google Translate.
+        """
         try:
-            if self.method == 'googletrans' and self.google_translator:
-                return self._translate_with_googletrans(text, src, dest)
+            # deep-translator uses different language codes
+            src = 'auto' if src == 'auto' else src.lower()
+            dest = dest.lower()
+            
+            # Split long texts (deep-translator has a character limit)
+            max_length = 5000
+            if len(text) > max_length:
+                chunks = [text[i:i+max_length] for i in range(0, len(text), max_length)]
+                translated_chunks = []
+                for chunk in chunks:
+                    translated_chunk = self.translator.translate(
+                        text=chunk,
+                        source=src,
+                        target=dest
+                    )
+                    translated_chunks.append(translated_chunk)
+                return ' '.join(translated_chunks)
             else:
-                return self._translate_with_llm(text, src, dest)
-        except Exception as e:
-            st.warning(f"Translation error: {str(e)}. Returning original text.")
-            return text
-            
-    def _translate_with_googletrans(self, text, src='ru', dest='en'):
-        """
-        Translate using googletrans library with improved error handling.
-        """
-        try:
-            # Clean and validate input text
-            text = text.strip()
-            if not text:
-                return text
+                return self.translator.translate(
+                    text=text,
+                    source=src,
+                    target=dest
+                )
                 
-            # Add delay to avoid rate limits
-            time.sleep(0.5)
-            
-            # Attempt translation with retry logic
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    result = self.google_translator.translate(text, src=src, dest=dest)
-                    if result and result.text:
-                        return result.text
-                    raise Exception("Empty translation result")
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-                    time.sleep(1)  # Wait before retry
-                    
-            raise Exception("All translation attempts failed")
-            
         except Exception as e:
-            # If googletrans fails, fall back to LLM translation
-            if self.llm:
-                st.warning(f"Googletrans error: {str(e)}. Falling back to LLM translation.")
-                return self._translate_with_llm(text, src, dest)
-            raise Exception(f"Googletrans error: {str(e)}")
+            raise Exception(f"Deep-translator error: {str(e)}")
             
     def _translate_with_llm(self, text, src='ru', dest='en'):
         """
-        Translate using LangChain LLM with improved error handling.
+        Translate using LangChain LLM.
         """
         if not self.llm:
             raise Exception("LLM not initialized for translation")
             
-        try:
-            # Clean input text
-            text = text.strip()
-            if not text:
-                return text
-                
-            # Prepare system message based on language direction
-            if src == 'ru' and dest == 'en':
-                system_msg = "You are a translator. Translate the given Russian text to English accurately and concisely."
-                user_msg = f"Translate this Russian text to English: {text}"
-            elif src == 'en' and dest == 'ru':
-                system_msg = "You are a translator. Translate the given English text to Russian accurately and concisely."
-                user_msg = f"Translate this English text to Russian: {text}"
-            else:
-                raise Exception(f"Unsupported language pair: {src} to {dest}")
-            
-            messages = [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": user_msg}
-            ]
-            
-            response = self.llm.invoke(messages)
-            
-            # Handle different response types
-            if hasattr(response, 'content'):
-                translation = response.content.strip()
-            elif isinstance(response, str):
-                translation = response.strip()
-            else:
-                translation = str(response).strip()
-                
-            if not translation:
-                raise Exception("Empty translation result")
-                
-            return translation
-            
-        except Exception as e:
-            raise Exception(f"LLM translation error: {str(e)}")
+        messages = [
+            {"role": "system", "content": "You are a translator. Translate the given text accurately and concisely."},
+            {"role": "user", "content": f"Translate this text from {src} to {dest}: {text}"}
+        ]
+        
+        response = self.llm.invoke(messages)
+        return response.content.strip() if hasattr(response, 'content') else str(response).strip()
+
+def init_translation_system(model_choice, translation_method='auto'):
+    """
+    Initialize translation system with appropriate configuration.
+    """
+    llm = init_langchain_llm(model_choice) if translation_method != 'deep-google' else None
+    
+    try:
+        translator = TranslationSystem(
+            method=translation_method,
+            llm=llm,
+            batch_size=5
+        )
+        return translator
+    except Exception as e:
+        st.error(f"Failed to initialize translation system: {str(e)}")
+        raise
 
 def process_file(uploaded_file, model_choice, translation_method='googletrans'):
     df = None
@@ -618,7 +655,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.33 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.34 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
