@@ -16,6 +16,157 @@ import contextlib
 from langchain_openai import ChatOpenAI  # Updated import
 import pdfkit
 from jinja2 import Template
+from googletrans import Translator as GoogleTranslator
+import time
+
+class TranslationSystem:
+    def __init__(self, method='googletrans', llm=None):
+        """
+        Initialize translation system with specified method.
+        
+        Args:
+            method (str): 'googletrans' or 'llm'
+            llm: LangChain LLM instance (required if method is 'llm')
+        """
+        self.method = method
+        self.llm = llm
+        self.google_translator = GoogleTranslator() if method == 'googletrans' else None
+        
+    def translate_text(self, text, src='ru', dest='en'):
+        """
+        Translate text using the selected translation method.
+        
+        Args:
+            text (str): Text to translate
+            src (str): Source language code
+            dest (str): Destination language code
+            
+        Returns:
+            str: Translated text
+        """
+        if pd.isna(text) or not text.strip():
+            return text
+            
+        try:
+            if self.method == 'googletrans':
+                return self._translate_with_googletrans(text, src, dest)
+            else:
+                return self._translate_with_llm(text, src, dest)
+        except Exception as e:
+            st.warning(f"Translation error: {str(e)}")
+            return text
+            
+    def _translate_with_googletrans(self, text, src='ru', dest='en'):
+        """
+        Translate using googletrans library.
+        """
+        try:
+            # Add delay to avoid rate limits
+            time.sleep(0.5)
+            result = self.google_translator.translate(text, src=src, dest=dest)
+            return result.text
+        except Exception as e:
+            raise Exception(f"Googletrans error: {str(e)}")
+            
+    def _translate_with_llm(self, text, src='ru', dest='en'):
+        """
+        Translate using LangChain LLM.
+        """
+        if not self.llm:
+            raise Exception("LLM not initialized for translation")
+            
+        messages = [
+            {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
+            {"role": "user", "content": f"Translate this Russian text to English: {text}"}
+        ]
+        
+        try:
+            response = self.llm.invoke(messages)
+            
+            if hasattr(response, 'content'):
+                return response.content.strip()
+            elif isinstance(response, str):
+                return response.strip()
+            else:
+                return str(response).strip()
+        except Exception as e:
+            raise Exception(f"LLM translation error: {str(e)}")
+
+def process_file(uploaded_file, model_choice, translation_method='googletrans'):
+    df = None
+    try:
+        df = pd.read_excel(uploaded_file, sheet_name='Публикации')
+        llm = init_langchain_llm(model_choice)
+        
+        # Initialize translation system with chosen method
+        translator = TranslationSystem(
+            method=translation_method,
+            llm=llm if translation_method == 'llm' else None
+        )
+        
+        # Validate required columns
+        required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            st.error(f"Error: The following required columns are missing: {', '.join(missing_columns)}")
+            return df if df is not None else None
+        
+        # Deduplication
+        original_news_count = len(df)
+        df = df.groupby('Объект', group_keys=False).apply(
+            lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
+        ).reset_index(drop=True)
+    
+        remaining_news_count = len(df)
+        duplicates_removed = original_news_count - remaining_news_count
+        st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
+
+        # Initialize progress tracking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Initialize new columns
+        df['Translated'] = ''
+        df['Sentiment'] = ''
+        df['Impact'] = ''
+        df['Reasoning'] = ''
+        df['Event_Type'] = ''
+        df['Event_Summary'] = ''
+        
+        # Process each news item
+        for index, row in df.iterrows():
+            try:
+                # Translate and analyze sentiment
+                translated_text = translator.translate_text(row['Выдержки из текста'])
+                df.at[index, 'Translated'] = translated_text
+                
+                sentiment = analyze_sentiment(translated_text)
+                df.at[index, 'Sentiment'] = sentiment
+                
+                # Detect events
+                event_type, event_summary = detect_events(llm, row['Выдержки из текста'], row['Объект'])
+                df.at[index, 'Event_Type'] = event_type
+                df.at[index, 'Event_Summary'] = event_summary
+                
+                if sentiment == "Negative":
+                    impact, reasoning = estimate_impact(llm, translated_text, row['Объект'])
+                    df.at[index, 'Impact'] = impact
+                    df.at[index, 'Reasoning'] = reasoning
+                
+                # Update progress
+                progress = (index + 1) / len(df)
+                progress_bar.progress(progress)
+                status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
+                
+            except Exception as e:
+                st.warning(f"Ошибка при обработке новости {index + 1}: {str(e)}")
+                continue
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ Ошибка при обработке файла: {str(e)}")
+        return df if df is not None else None
 
 
 def translate_reasoning_to_russian(llm, text):
@@ -182,28 +333,6 @@ def fuzzy_deduplicate(df, column, threshold=50):
     return df.iloc[indices_to_keep]
 
 
-def translate_text(llm, text):
-    try:
-        # All models now use OpenAI-compatible API format
-        messages = [
-            {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
-            {"role": "user", "content": f"Translate this Russian text to English: {text}"}
-        ]
-        response = llm.invoke(messages)
-        
-        if hasattr(response, 'content'):
-            return response.content.strip()
-        elif isinstance(response, str):
-            return response.strip()
-        else:
-            return str(response).strip()
-            
-    except Exception as e:
-        st.error(f"Translation error: {str(e)}")
-        return text
-
-
-
 def init_langchain_llm(model_choice):
     try:
         if model_choice == "Groq (llama-3.1-70b)":
@@ -318,77 +447,6 @@ def generate_sentiment_visualization(df):
     ax.set_xlabel('Количество упоминаний')
     plt.tight_layout()
     return fig
-
-def process_file(uploaded_file, model_choice):
-    df = None
-    try:
-        df = pd.read_excel(uploaded_file, sheet_name='Публикации')
-        llm = init_langchain_llm(model_choice)
-        
-        # Validate required columns
-        required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            st.error(f"Error: The following required columns are missing: {', '.join(missing_columns)}")
-            return df if df is not None else None
-        
-        # Deduplication
-        original_news_count = len(df)
-        df = df.groupby('Объект', group_keys=False).apply(
-            lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
-        ).reset_index(drop=True)
-    
-        remaining_news_count = len(df)
-        duplicates_removed = original_news_count - remaining_news_count
-        st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
-
-
-        # Initialize progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        # Initialize new columns
-        df['Translated'] = ''
-        df['Sentiment'] = ''
-        df['Impact'] = ''
-        df['Reasoning'] = ''
-        df['Event_Type'] = ''
-        df['Event_Summary'] = ''
-        
-        # Process each news item
-        for index, row in df.iterrows():
-            try:
-                # Translate and analyze sentiment
-                translated_text = translate_text(llm, row['Выдержки из текста'])
-                df.at[index, 'Translated'] = translated_text
-                
-                sentiment = analyze_sentiment(translated_text)
-                df.at[index, 'Sentiment'] = sentiment
-                
-                # Detect events
-                event_type, event_summary = detect_events(llm, row['Выдержки из текста'], row['Объект'])
-                df.at[index, 'Event_Type'] = event_type
-                df.at[index, 'Event_Summary'] = event_summary
-                
-                if sentiment == "Negative":
-                    impact, reasoning = estimate_impact(llm, translated_text, row['Объект'])
-                    df.at[index, 'Impact'] = impact
-                    df.at[index, 'Reasoning'] = reasoning
-                
-                # Update progress
-                progress = (index + 1) / len(df)
-                progress_bar.progress(progress)
-                status_text.text(f"Проанализировано {index + 1} из {len(df)} новостей")
-                
-            except Exception as e:
-                st.warning(f"Ошибка при обработке новости {index + 1}: {str(e)}")
-                continue
-        
-        return df
-        
-    except Exception as e:
-        st.error(f"❌ Ошибка при обработке файла: {str(e)}")
-        return df if df is not None else None
 
 def create_analysis_data(df):
     analysis_data = []
@@ -506,13 +564,20 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.30):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.32 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
             "Выберите модель для анализа:",
             ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Qwen-Max"],
             key="model_selector"
+        )
+        
+        translation_method = st.radio(
+            "Выберите метод перевода:",
+            ["googletrans", "llm"],
+            key="translation_selector",
+            help="googletrans - быстрее, llm - качественнее, но медленнее"
         )
         
         st.markdown(
@@ -524,16 +589,16 @@ def main():
         """,
         unsafe_allow_html=True)
 
-        # Model selection is now handled in init_langchain_llm()
-        
         with st.expander("ℹ️ Инструкция"):
             st.markdown("""
             1. Выберите модель для анализа
-            2. Загрузите Excel файл с новостями <br/>
-            3. Дождитесь завершения анализа <br/>
-            4. Скачайте результаты анализа в формате Excel <br/>
+            2. Выберите метод перевода
+            3. Загрузите Excel файл с новостями
+            4. Дождитесь завершения анализа
+            5. Скачайте результаты анализа в формате Excel
             """, unsafe_allow_html=True)
-    
+
+   
         st.markdown(
         """
         <style>
@@ -563,12 +628,15 @@ def main():
     if uploaded_file is not None and st.session_state.processed_df is None:
         start_time = time.time()
         
-
         # Initialize LLM with selected model
         llm = init_langchain_llm(model_choice)
 
-
-        st.session_state.processed_df = process_file(uploaded_file, model_choice)
+        # Process file with selected translation method
+        st.session_state.processed_df = process_file(
+            uploaded_file, 
+            model_choice,
+            translation_method
+        )
 
         st.subheader("Предпросмотр данных")
         preview_df = st.session_state.processed_df[['Объект', 'Заголовок', 'Sentiment', 'Impact']].head()
