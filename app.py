@@ -192,9 +192,9 @@ def process_file(uploaded_file, model_choice, translation_method='googletrans'):
         # In your process_file function:
         translator = init_translation_system(
             model_choice=model_choice,
-            translation_method='auto'  # Will try deep-translator first, then fal
-            l back to LLM if needed
+            translation_method='auto'  # Will try deep-translator first, then fall back to LLM if needed
         )
+        
         # Validate required columns
         required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
         missing_columns = [col for col in required_columns if col not in df.columns]
