@@ -216,6 +216,8 @@ def process_file(uploaded_file, model_choice, translation_method=None):
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
+        # Add fallback initialization here
+        fallback_llm = FallbackLLMSystem() if model_choice != "Local-MT5" else llm
         translator = TranslationSystem(batch_size=5)
         
         # Initialize all required columns first
@@ -515,7 +517,7 @@ def init_langchain_llm(model_choice):
                 temperature=0.0
             )
             
-        elif model_choice == "Local-BLOOMZ":  # Added new option
+        elif model_choice == "Local-MT5":  # Added new option
             return FallbackLLMSystem()
             
         else:  # Qwen API
@@ -723,7 +725,7 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.46):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.47):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
 
@@ -781,6 +783,7 @@ def main():
     uploaded_file = st.sidebar.file_uploader("Выбирайте Excel-файл", type="xlsx", key="unique_file_uploader")
     
     if uploaded_file is not None and st.session_state.processed_df is None:
+        start_time = time.time() 
         try:
             st.session_state.processed_df = process_file(
                 uploaded_file,
@@ -827,8 +830,14 @@ def main():
 
         
        
-        output = create_output_file(st.session_state.processed_df, uploaded_file, llm)
         
+        output = create_output_file(
+            st.session_state.processed_df, 
+            uploaded_file, 
+            init_langchain_llm(model_choice)  # Initialize new LLM instance
+        )
+
+
         end_time = time.time()
         elapsed_time = end_time - start_time
         formatted_time = format_elapsed_time(elapsed_time)
