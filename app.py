@@ -55,18 +55,18 @@ class FallbackLLMSystem:
         try:
             prompt = f"""<s>Analyze news about company {entity}:
 
-{text}
+            {text}
 
-Classify event type as one of:
-- Отчетность (financial reports)
-- РЦБ (securities market events)
-- Суд (legal actions)
-- Нет (no significant events)
+            Classify event type as one of:
+            - Отчетность (financial reports)
+            - РЦБ (securities market events)
+            - Суд (legal actions)
+            - Нет (no significant events)
 
-Format response as:
-Тип: [type]
-Краткое описание: [summary]</s>"""
-            
+            Format response as:
+            Тип: [type]
+            Краткое описание: [summary]</s>"""
+                        
             inputs = self.tokenizer(
                 prompt,
                 return_tensors="pt",
@@ -105,70 +105,84 @@ Format response as:
             st.warning(f"Event detection error: {str(e)}")
             return "Нет", "Ошибка анализа"
 
-    def estimate_impact(self, text, entity):
-        """Estimate impact using MT5"""
+    def ensure_groq_llm():
+        """Initialize Groq LLM for impact estimation"""
+        try:
+            if 'groq_key' not in st.secrets:
+                st.error("Groq API key not found in secrets. Please add it with the key 'groq_key'.")
+                return None
+                
+            return ChatOpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                model="llama-3.1-70b-versatile",
+                openai_api_key=st.secrets['groq_key'],
+                temperature=0.0
+            )
+        except Exception as e:
+            st.error(f"Error initializing Groq LLM: {str(e)}")
+            return None
+
+    def estimate_impact(llm, news_text, entity):
+        """
+        Estimate impact using Groq LLM regardless of the main model choice.
+        Falls back to the provided LLM if Groq initialization fails.
+        """
         # Initialize default return values
         impact = "Неопределенный эффект"
-        reasoning = "Не удалось определить влияние"
+        reasoning = "Не удалось получить обоснование"
         
         try:
-            prompt = f"""<s>Analyze impact of news about company {entity}:
-
-{text}
-
-Classify impact as one of:
-- Значительный риск убытков
-- Умеренный риск убытков
-- Незначительный риск убытков
-- Вероятность прибыли
-- Неопределенный эффект
-
-Format response as:
-Impact: [category]
-Reasoning: [explanation]</s>"""
+            # Always try to use Groq first
+            groq_llm = ensure_groq_llm()
+            working_llm = groq_llm if groq_llm is not None else llm
             
-            inputs = self.tokenizer(
-                prompt,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=512
-            ).to(self.device)
+            template = """
+            You are a financial analyst. Analyze this news piece about {entity} and assess its potential impact.
             
-            outputs = self.model.generate(
-                **inputs,
-                max_length=200,
-                num_return_sequences=1,
-                do_sample=False,
-                pad_token_id=self.tokenizer.pad_token_id
-            )
+            News: {news}
             
-            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            Classify the impact into one of these categories:
+            1. "Значительный риск убытков" (Significant loss risk)
+            2. "Умеренный риск убытков" (Moderate loss risk)
+            3. "Незначительный риск убытков" (Minor loss risk)
+            4. "Вероятность прибыли" (Potential profit)
+            5. "Неопределенный эффект" (Uncertain effect)
             
-            if "Impact:" in response and "Reasoning:" in response:
-                parts = response.split("Reasoning:")
-                impact_part = parts[0]
-                if "Impact:" in impact_part:
-                    impact = impact_part.split("Impact:")[1].strip()
-                    # Validate impact category
-                    valid_impacts = [
-                        "Значительный риск убытков",
-                        "Умеренный риск убытков",
-                        "Незначительный риск убытков",
-                        "Вероятность прибыли",
-                        "Неопределенный эффект"
-                    ]
-                    if impact not in valid_impacts:
-                        impact = "Неопределенный эффект"
+            Provide a brief, fact-based reasoning for your assessment.
+            
+            Format your response exactly as:
+            Impact: [category]
+            Reasoning: [explanation in 2-3 sentences]
+            """
+            
+            prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
+            chain = prompt | working_llm
+            response = chain.invoke({"entity": entity, "news": news_text})
+            
+            # Extract content from response
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            if "Impact:" in response_text and "Reasoning:" in response_text:
+                impact_part, reasoning_part = response_text.split("Reasoning:")
+                impact_temp = impact_part.split("Impact:")[1].strip()
                 
-                if len(parts) > 1:
-                    reasoning = parts[1].strip()
-            
-            return impact, reasoning
-            
+                # Validate impact category
+                valid_impacts = [
+                    "Значительный риск убытков",
+                    "Умеренный риск убытков",
+                    "Незначительный риск убытков",
+                    "Вероятность прибыли",
+                    "Неопределенный эффект"
+                ]
+                if impact_temp in valid_impacts:
+                    impact = impact_temp
+                reasoning = reasoning_part.strip()
+                
         except Exception as e:
-            st.warning(f"Impact estimation error: {str(e)}")
-            return "Неопределенный эффект", "Ошибка анализа"
+            st.warning(f"Error in impact estimation: {str(e)}")
+        
+        return impact, reasoning
+   
         
 
 class TranslationSystem:
@@ -257,6 +271,11 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         fallback_llm = FallbackLLMSystem() if model_choice != "Local-MT5" else llm
         translator = TranslationSystem(batch_size=5)
         
+        # Pre-initialize Groq for impact estimation
+        groq_llm = ensure_groq_llm()
+        if groq_llm is None:
+            st.warning("Failed to initialize Groq LLM for impact estimation. Using fallback model.")
+        
         # Initialize all required columns first
         df['Translated'] = ''
         df['Sentiment'] = ''
@@ -324,17 +343,17 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                     if sentiment == "Negative":
                         try:
                             impact, reasoning = estimate_impact(
-                                llm,
+                                groq_llm if groq_llm is not None else llm,
                                 translated_text,
                                 row['Объект']
                             )
+                            df.at[idx, 'Impact'] = impact
+                            df.at[idx, 'Reasoning'] = reasoning
                         except Exception as e:
                             if 'rate limit' in str(e).lower():
-                                st.warning("Rate limit reached. Using fallback model for impact estimation.")
-                                impact, reasoning = fallback_llm.estimate_impact(
-                                    translated_text,
-                                    row['Объект']
-                                )
+                                st.warning("Groq rate limit reached. Waiting before retry...")
+                                time.sleep(240)  # Wait 4 minutes
+                                continue
 
                         df.at[idx, 'Impact'] = impact
                         df.at[idx, 'Reasoning'] = reasoning
@@ -779,7 +798,7 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.49):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.50):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
 
