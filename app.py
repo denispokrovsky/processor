@@ -64,12 +64,12 @@ class TranslationSystem:
             st.warning(f"Translation error: {str(e)}. Using original text.")
             return text
 
-def process_file(uploaded_file, model_choice):
+def process_file(uploaded_file, model_choice, translation_method=None):  # Added translation_method parameter with default None
     df = None
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
-        translator = TranslationSystem(batch_size=5)
+        translator = TranslationSystem(batch_size=5)  # We'll use deep-translator regardless of translation_method
         
         # Validate required columns
         required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
@@ -115,7 +115,7 @@ def process_file(uploaded_file, model_choice):
                     sentiment = analyze_sentiment(translated_text)
                     df.at[idx, 'Sentiment'] = sentiment
                     
-                    # Event detection
+                    # Event detection with rate limit handling
                     event_type, event_summary = detect_events(
                         llm,
                         row['Выдержки из текста'],
@@ -147,7 +147,7 @@ def process_file(uploaded_file, model_choice):
                     st.warning(f"Ошибка при обработке новости {idx + 1}: {str(e)}")
                     continue
                 
-                # Small delay between items to avoid rate limits
+                # Small delay between items
                 time.sleep(0.5)
             
             # Delay between batches
@@ -158,7 +158,6 @@ def process_file(uploaded_file, model_choice):
     except Exception as e:
         st.error(f"❌ Ошибка при обработке файла: {str(e)}")
         return df if df is not None else None
-
 
 def translate_reasoning_to_russian(llm, text):
     template = """
@@ -552,10 +551,9 @@ def create_output_file(df, uploaded_file, llm):
     wb.save(output)
     output.seek(0)
     return output
-
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.38 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.39 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
@@ -564,11 +562,12 @@ def main():
             key="model_selector"
         )
         
+        # We'll keep this for compatibility but it won't affect the translation method
         translation_method = st.radio(
             "Выберите метод перевода:",
             ["googletrans", "llm"],
             key="translation_selector",
-            help="googletrans - быстрее, llm - качественнее, но медленнее"
+            help="Используется deep-translator независимо от выбора"
         )
         
         st.markdown(
@@ -617,18 +616,12 @@ def main():
     uploaded_file = st.sidebar.file_uploader("Выбирайте Excel-файл", type="xlsx", key="unique_file_uploader")
     
     if uploaded_file is not None and st.session_state.processed_df is None:
-        start_time = time.time()
-        
-        # Initialize LLM with selected model
-        llm = init_langchain_llm(model_choice)
-
-        # Process file with selected translation method
         st.session_state.processed_df = process_file(
-            uploaded_file, 
+            uploaded_file,
             model_choice,
-            translation_method
+            translation_method  # This parameter won't affect the translation method but keeps the interface consistent
         )
-
+    
         st.subheader("Предпросмотр данных")
         preview_df = st.session_state.processed_df[['Объект', 'Заголовок', 'Sentiment', 'Impact']].head()
         st.dataframe(preview_df)
