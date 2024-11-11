@@ -484,35 +484,52 @@ def analyze_sentiment(text):
 
 
 def detect_events(llm, text, entity):
-    template = """
-    Проанализируйте следующую новость о компании "{entity}" и определите наличие следующих событий:
-    1. Публикация отчетности и ключевые показатели (выручка, прибыль, EBITDA)
-    2. События на рынке ценных бумаг (погашение облигаций, выплата/невыплата купона, дефолт, реструктуризация)
-    3. Судебные иски или юридические действия против компании, акционеров, менеджеров
-
-    Новость: {text}
-
-    Ответьте в следующем формате:
-    Тип: ["Отчетность" или "РЦБ" или "Суд" или "Нет"]
-    Краткое описание: [краткое описание события на русском языке, не более 2 предложений]
     """
-    
-    prompt = PromptTemplate(template=template, input_variables=["entity", "text"])
-    chain = prompt | llm
-    response = chain.invoke({"entity": entity, "text": text})
-    
+    Detect events in news text. This function works with both API-based LLMs and local models.
+    """
+    # Initialize default return values
     event_type = "Нет"
     summary = ""
     
     try:
-        response_text = response.content if hasattr(response, 'content') else str(response)
-        if "Тип:" in response_text and "Краткое описание:" in response_text:
-            type_part, summary_part = response_text.split("Краткое описание:")
-            event_type = type_part.split("Тип:")[1].strip()
-            summary = summary_part.strip()
+        # Handle API-based LLMs (Groq, GPT-4, Qwen)
+        if hasattr(llm, 'invoke'):
+            template = """
+            Проанализируйте следующую новость о компании "{entity}" и определите наличие следующих событий:
+            1. Публикация отчетности и ключевые показатели (выручка, прибыль, EBITDA)
+            2. События на рынке ценных бумаг (погашение облигаций, выплата/невыплата купона, дефолт, реструктуризация)
+            3. Судебные иски или юридические действия против компании, акционеров, менеджеров
+
+            Новость: {text}
+
+            Ответьте в следующем формате:
+            Тип: ["Отчетность" или "РЦБ" или "Суд" или "Нет"]
+            Краткое описание: [краткое описание события на русском языке, не более 2 предложений]
+            """
+            
+            prompt = PromptTemplate(template=template, input_variables=["entity", "text"])
+            chain = prompt | llm
+            response = chain.invoke({"entity": entity, "text": text})
+            
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            if "Тип:" in response_text and "Краткое описание:" in response_text:
+                type_part, summary_part = response_text.split("Краткое описание:")
+                event_type_temp = type_part.split("Тип:")[1].strip()
+                # Validate event type
+                valid_types = ["Отчетность", "РЦБ", "Суд", "Нет"]
+                if event_type_temp in valid_types:
+                    event_type = event_type_temp
+                summary = summary_part.strip()
+                
+        # Handle local MT5 model
+        else:
+            # Assuming llm is FallbackLLMSystem instance
+            event_type, summary = llm.detect_events(text, entity)
+            
     except Exception as e:
         st.warning(f"Ошибка при анализе событий: {str(e)}")
-    
+        
     return event_type, summary
 
 def fuzzy_deduplicate(df, column, threshold=50):
@@ -762,7 +779,7 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.48):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.49):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
 
