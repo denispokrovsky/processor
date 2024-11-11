@@ -21,10 +21,12 @@ from typing import Optional
 from deep_translator import GoogleTranslator
 from googletrans import Translator as LegacyTranslator
 import torch
+
 from transformers import (
     pipeline,
     AutoModelForSeq2SeqLM,
-    AutoTokenizer
+    AutoTokenizer,
+    AutoModelForCausalLM  # 4 Qwen
 )
 
 class FallbackLLMSystem:
@@ -105,85 +107,147 @@ class FallbackLLMSystem:
             st.warning(f"Event detection error: {str(e)}")
             return "Нет", "Ошибка анализа"
 
-    def ensure_groq_llm():
-        """Initialize Groq LLM for impact estimation"""
-        try:
-            if 'groq_key' not in st.secrets:
-                st.error("Groq API key not found in secrets. Please add it with the key 'groq_key'.")
-                return None
-                
-            return ChatOpenAI(
-                base_url="https://api.groq.com/openai/v1",
-                model="llama-3.1-70b-versatile",
-                openai_api_key=st.secrets['groq_key'],
-                temperature=0.0
-            )
-        except Exception as e:
-            st.error(f"Error initializing Groq LLM: {str(e)}")
+def ensure_groq_llm():
+    """Initialize Groq LLM for impact estimation"""
+    try:
+        if 'groq_key' not in st.secrets:
+            st.error("Groq API key not found in secrets. Please add it with the key 'groq_key'.")
             return None
+            
+        return ChatOpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            model="llama-3.1-70b-versatile",
+            openai_api_key=st.secrets['groq_key'],
+            temperature=0.0
+        )
+    except Exception as e:
+        st.error(f"Error initializing Groq LLM: {str(e)}")
+        return None
 
-    def estimate_impact(llm, news_text, entity):
-        """
-        Estimate impact using Groq LLM regardless of the main model choice.
-        Falls back to the provided LLM if Groq initialization fails.
-        """
-        # Initialize default return values
-        impact = "Неопределенный эффект"
-        reasoning = "Не удалось получить обоснование"
+def estimate_impact(llm, news_text, entity):
+    """
+    Estimate impact using Groq LLM regardless of the main model choice.
+    Falls back to the provided LLM if Groq initialization fails.
+    """
+    # Initialize default return values
+    impact = "Неопределенный эффект"
+    reasoning = "Не удалось получить обоснование"
+    
+    try:
+        # Always try to use Groq first
+        groq_llm = ensure_groq_llm()
+        working_llm = groq_llm if groq_llm is not None else llm
         
-        try:
-            # Always try to use Groq first
-            groq_llm = ensure_groq_llm()
-            working_llm = groq_llm if groq_llm is not None else llm
-            
-            template = """
-            You are a financial analyst. Analyze this news piece about {entity} and assess its potential impact.
-            
-            News: {news}
-            
-            Classify the impact into one of these categories:
-            1. "Значительный риск убытков" (Significant loss risk)
-            2. "Умеренный риск убытков" (Moderate loss risk)
-            3. "Незначительный риск убытков" (Minor loss risk)
-            4. "Вероятность прибыли" (Potential profit)
-            5. "Неопределенный эффект" (Uncertain effect)
-            
-            Provide a brief, fact-based reasoning for your assessment.
-            
-            Format your response exactly as:
-            Impact: [category]
-            Reasoning: [explanation in 2-3 sentences]
-            """
-            
-            prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
-            chain = prompt | working_llm
-            response = chain.invoke({"entity": entity, "news": news_text})
-            
-            # Extract content from response
-            response_text = response.content if hasattr(response, 'content') else str(response)
-            
-            if "Impact:" in response_text and "Reasoning:" in response_text:
-                impact_part, reasoning_part = response_text.split("Reasoning:")
-                impact_temp = impact_part.split("Impact:")[1].strip()
-                
-                # Validate impact category
-                valid_impacts = [
-                    "Значительный риск убытков",
-                    "Умеренный риск убытков",
-                    "Незначительный риск убытков",
-                    "Вероятность прибыли",
-                    "Неопределенный эффект"
-                ]
-                if impact_temp in valid_impacts:
-                    impact = impact_temp
-                reasoning = reasoning_part.strip()
-                
-        except Exception as e:
-            st.warning(f"Error in impact estimation: {str(e)}")
+        template = """
+        You are a financial analyst. Analyze this news piece about {entity} and assess its potential impact.
         
-        return impact, reasoning
+        News: {news}
+        
+        Classify the impact into one of these categories:
+        1. "Значительный риск убытков" (Significant loss risk)
+        2. "Умеренный риск убытков" (Moderate loss risk)
+        3. "Незначительный риск убытков" (Minor loss risk)
+        4. "Вероятность прибыли" (Potential profit)
+        5. "Неопределенный эффект" (Uncertain effect)
+        
+        Provide a brief, fact-based reasoning for your assessment.
+        
+        Format your response exactly as:
+        Impact: [category]
+        Reasoning: [explanation in 2-3 sentences]
+        """
+        
+        prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
+        chain = prompt | working_llm
+        response = chain.invoke({"entity": entity, "news": news_text})
+        
+        # Extract content from response
+        response_text = response.content if hasattr(response, 'content') else str(response)
+        
+        if "Impact:" in response_text and "Reasoning:" in response_text:
+            impact_part, reasoning_part = response_text.split("Reasoning:")
+            impact_temp = impact_part.split("Impact:")[1].strip()
+            
+            # Validate impact category
+            valid_impacts = [
+                "Значительный риск убытков",
+                "Умеренный риск убытков",
+                "Незначительный риск убытков",
+                "Вероятность прибыли",
+                "Неопределенный эффект"
+            ]
+            if impact_temp in valid_impacts:
+                impact = impact_temp
+            reasoning = reasoning_part.strip()
+            
+    except Exception as e:
+        st.warning(f"Error in impact estimation: {str(e)}")
+    
+    return impact, reasoning
    
-        
+class QwenSystem:
+    def __init__(self):
+        """Initialize Qwen 2.5 Coder model"""
+        try:
+            self.model_name = "Qwen/Qwen2.5-Coder-32B-Instruct"
+            
+            # Initialize model with auto settings
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                torch_dtype="auto",
+                device_map="auto"
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            
+            st.success(f"Successfully initialized Qwen2.5 model")
+            
+        except Exception as e:
+            st.error(f"Error initializing Qwen2.5: {str(e)}")
+            raise
+
+    def invoke(self, messages):
+        """Process messages using Qwen's chat template"""
+        try:
+            # Prepare messages with system prompt
+            chat_messages = [
+                {"role": "system", "content": "You are wise financial analyst. You are a helpful assistant."}
+            ]
+            chat_messages.extend(messages)
+            
+            # Apply chat template
+            text = self.tokenizer.apply_chat_template(
+                chat_messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            
+            # Prepare model inputs
+            model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
+            
+            # Generate response
+            generated_ids = self.model.generate(
+                **model_inputs,
+                max_new_tokens=512,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id
+            )
+            
+            # Extract new tokens
+            generated_ids = [
+                output_ids[len(input_ids):] 
+                for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+            ]
+            
+            # Decode response
+            response = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            
+            # Return in ChatOpenAI-compatible format
+            return type('Response', (), {'content': response})()
+            
+        except Exception as e:
+            st.warning(f"Qwen generation error: {str(e)}")
+            raise
+
 
 class TranslationSystem:
     def __init__(self, batch_size=5):
@@ -567,7 +631,11 @@ def fuzzy_deduplicate(df, column, threshold=50):
 
 def init_langchain_llm(model_choice):
     try:
-        if model_choice == "Groq (llama-3.1-70b)":
+        if model_choice == "Qwen2.5-Coder":
+            st.info("Loading Qwen2.5-Coder model. только GPU!")
+            return QwenSystem()
+            
+        elif model_choice == "Groq (llama-3.1-70b)":
             if 'groq_key' not in st.secrets:
                 st.error("Groq API key not found in secrets. Please add it with the key 'groq_key'.")
                 st.stop()
@@ -590,20 +658,8 @@ def init_langchain_llm(model_choice):
                 temperature=0.0
             )
             
-        elif model_choice == "Local-MT5":  # Added new option
+        elif model_choice == "Local-MT5":
             return FallbackLLMSystem()
-            
-        else:  # Qwen API
-            if 'ali_key' not in st.secrets:
-                st.error("DashScope API key not found in secrets. Please add it with the key 'dashscope_api_key'.")
-                st.stop()
-            
-            return ChatOpenAI(
-                base_url="https://dashscope.aliyuncs.com/api/v1",
-                model="qwen-max",
-                openai_api_key=st.secrets['ali_key'],
-                temperature=0.0
-            )
             
     except Exception as e:
         st.error(f"Error initializing the LLM: {str(e)}")
@@ -798,18 +854,17 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.50):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.51):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
 
         
         model_choice = st.radio(
             "Выберите модель для анализа:",
-            ["Local-MT5", "Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Qwen-Max"],
+            ["Qwen2.5-Coder", "Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Local-MT5"],
             key="model_selector",
-            help="Local-MT5 работает без API ключей и ограничений"
+            help="Выберите модель для анализа новостей"
         )
-    
         st.markdown(
         """
         Использованы технологии:  
