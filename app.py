@@ -9,7 +9,7 @@ import os
 from openpyxl import load_workbook
 from langchain.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
-from transformers import pipeline
+from transformers import pipeline, AutoModelForSeq2SeqGeneration, AutoTokenizer
 from io import StringIO, BytesIO
 import sys
 import contextlib
@@ -23,6 +23,115 @@ from deep_translator import GoogleTranslator
 from googletrans import Translator as LegacyTranslator
 
 
+class FallbackLLMSystem:
+    def __init__(self):
+        """Initialize fallback models for event detection and reasoning"""
+        try:
+            # Initialize BLOOMZ model for Russian text processing
+            self.model_name = "bigscience/bloomz-560m"  # Smaller version for efficiency
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.model = AutoModelForSeq2SeqGeneration.from_pretrained(self.model_name)
+            
+            # Set device
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model = self.model.to(self.device)
+            
+            # Initialize pipeline
+            self.pipeline = pipeline(
+                "text2text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+                device=0 if self.device == "cuda" else -1
+            )
+            
+        except Exception as e:
+            st.error(f"Error initializing fallback LLM system: {str(e)}")
+            raise
+
+    def detect_events(self, text, entity):
+        """Detect events using the fallback model"""
+        prompt = f"""Задача: Проанализируйте новость о компании и определите тип события.
+        
+        Компания: {entity}
+        Новость: {text}
+        
+        Возможные типы событий:
+        - Отчетность (публикация финансовых результатов)
+        - РЦБ (события с облигациями или акциями)
+        - Суд (судебные иски)
+        - Нет (нет значимых событий)
+        
+        Формат ответа:
+        Тип: [тип события]
+        Краткое описание: [описание в двух предложениях]
+        
+        Ответ:"""
+        
+        try:
+            response = self.pipeline(
+                prompt,
+                max_length=200,
+                num_return_sequences=1,
+                do_sample=False
+            )[0]['generated_text']
+            
+            # Parse response
+            event_type = "Нет"
+            summary = ""
+            
+            if "Тип:" in response and "Краткое описание:" in response:
+                type_part, summary_part = response.split("Краткое описание:")
+                event_type = type_part.split("Тип:")[1].strip()
+                summary = summary_part.strip()
+            
+            return event_type, summary
+            
+        except Exception as e:
+            st.warning(f"Error in fallback event detection: {str(e)}")
+            return "Нет", ""
+
+    def estimate_impact(self, text, entity):
+        """Estimate impact using the fallback model"""
+        prompt = f"""Задача: Оцените влияние новости на компанию.
+        
+        Компания: {entity}
+        Новость: {text}
+        
+        Возможные категории влияния:
+        - Значительный риск убытков
+        - Умеренный риск убытков
+        - Незначительный риск убытков
+        - Вероятность прибыли
+        - Неопределенный эффект
+        
+        Формат ответа:
+        Impact: [категория]
+        Reasoning: [объяснение в двух предложениях]
+        
+        Ответ:"""
+        
+        try:
+            response = self.pipeline(
+                prompt,
+                max_length=200,
+                num_return_sequences=1,
+                do_sample=False
+            )[0]['generated_text']
+            
+            impact = "Неопределенный эффект"
+            reasoning = "Не удалось определить влияние"
+            
+            if "Impact:" in response and "Reasoning:" in response:
+                impact_part, reasoning_part = response.split("Reasoning:")
+                impact = impact_part.split("Impact:")[1].strip()
+                reasoning = reasoning_part.strip()
+            
+            return impact, reasoning
+            
+        except Exception as e:
+            st.warning(f"Error in fallback impact estimation: {str(e)}")
+            return "Неопределенный эффект", "Ошибка анализа"
+        
 
 class TranslationSystem:
     def __init__(self, batch_size=5):
@@ -106,6 +215,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
+        fallback_llm = FallbackLLMSystem()  # Initialize fallback system
         translator = TranslationSystem(batch_size=5)
         
         # Initialize all required columns first
@@ -152,21 +262,41 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                     sentiment = analyze_sentiment(translated_text)
                     df.at[idx, 'Sentiment'] = sentiment
                     
-                    # Event detection
-                    event_type, event_summary = detect_events(
-                        llm,
-                        row['Выдержки из текста'],
-                        row['Объект']
-                    )
+                    try:
+                        # Try with primary LLM
+                        event_type, event_summary = detect_events(
+                            llm,
+                            row['Выдержки из текста'],
+                            row['Объект']
+                        )
+                    except Exception as e:
+                        if 'rate limit' in str(e).lower():
+                            st.warning("Rate limit reached. Using fallback model for event detection.")
+                            event_type, event_summary = fallback_llm.detect_events(
+                                row['Выдержки из текста'],
+                                row['Объект']
+                            )
+
                     df.at[idx, 'Event_Type'] = event_type
                     df.at[idx, 'Event_Summary'] = event_summary
                     
+                    
+                            # Similar for impact estimation
                     if sentiment == "Negative":
-                        impact, reasoning = estimate_impact(
-                            llm,
-                            translated_text,
-                            row['Объект']
-                        )
+                        try:
+                            impact, reasoning = estimate_impact(
+                                llm,
+                                translated_text,
+                                row['Объект']
+                            )
+                        except Exception as e:
+                            if 'rate limit' in str(e).lower():
+                                st.warning("Rate limit reached. Using fallback model for impact estimation.")
+                                impact, reasoning = fallback_llm.estimate_impact(
+                                    translated_text,
+                                    row['Объект']
+                                )
+
                         df.at[idx, 'Impact'] = impact
                         df.at[idx, 'Reasoning'] = reasoning
                     
@@ -385,12 +515,14 @@ def init_langchain_llm(model_choice):
                 temperature=0.0
             )
             
+        elif model_choice == "Local-BLOOMZ":  # Added new option
+            return FallbackLLMSystem()
+            
         else:  # Qwen API
             if 'ali_key' not in st.secrets:
                 st.error("DashScope API key not found in secrets. Please add it with the key 'dashscope_api_key'.")
                 st.stop()
             
-            # Using Qwen's API through DashScope
             return ChatOpenAI(
                 base_url="https://dashscope.aliyuncs.com/api/v1",
                 model="qwen-max",
@@ -401,6 +533,7 @@ def init_langchain_llm(model_choice):
     except Exception as e:
         st.error(f"Error initializing the LLM: {str(e)}")
         st.stop()
+
 
 def estimate_impact(llm, news_text, entity):
     template = """
@@ -590,16 +723,17 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.42 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.43 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
+        
+
         
         model_choice = st.radio(
             "Выберите модель для анализа:",
-            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Qwen-Max"],
+            ["Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Qwen-Max", "Local-BLOOMZ"],
             key="model_selector"
         )
-        
-       
+    
         st.markdown(
         """
         Использованы технологии:  
