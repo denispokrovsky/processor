@@ -189,12 +189,12 @@ def process_file(uploaded_file, model_choice, translation_method='googletrans'):
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
         
-        # Initialize translation system with chosen method
-        translator = TranslationSystem(
-            method=translation_method,
-            llm=llm if translation_method == 'llm' else None
+        # In your process_file function:
+        translator = init_translation_system(
+            model_choice=model_choice,
+            translation_method='auto'  # Will try deep-translator first, then fal
+            l back to LLM if needed
         )
-        
         # Validate required columns
         required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
         missing_columns = [col for col in required_columns if col not in df.columns]
@@ -655,7 +655,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.34 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.35 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
