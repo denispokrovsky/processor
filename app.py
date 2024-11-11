@@ -46,9 +46,27 @@ class FallbackLLMSystem:
             st.error(f"Error initializing MT5: {str(e)}")
             raise
 
-    def _generate_text(self, prompt):
-        """Internal method for text generation with MT5"""
+    def detect_events(self, text, entity):
+        """Detect events using MT5"""
+        # Initialize default return values
+        event_type = "Нет"
+        summary = ""
+        
         try:
+            prompt = f"""<s>Analyze news about company {entity}:
+
+{text}
+
+Classify event type as one of:
+- Отчетность (financial reports)
+- РЦБ (securities market events)
+- Суд (legal actions)
+- Нет (no significant events)
+
+Format response as:
+Тип: [type]
+Краткое описание: [summary]</s>"""
+            
             inputs = self.tokenizer(
                 prompt,
                 return_tensors="pt",
@@ -65,35 +83,21 @@ class FallbackLLMSystem:
                 pad_token_id=self.tokenizer.pad_token_id
             )
             
-            return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        except Exception as e:
-            st.warning(f"Text generation error: {str(e)}")
-            raise
-
-    def detect_events(self, text, entity):
-        """Detect events using MT5"""
-        prompt = f"""Task: Analyze news about company and determine event type.
-        Company: {entity}
-        News: {text}
-        Event types:
-        - Отчетность (financial reports)
-        - РЦБ (securities market events)
-        - Суд (legal actions)
-        - Нет (no significant events)
-        Format:
-        Тип: [event type]
-        Краткое описание: [two sentence description]"""
-        
-        try:
-            response = self._generate_text(prompt)
+            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
             
-            event_type = "Нет"
-            summary = ""
-            
+            # Parse response
             if "Тип:" in response and "Краткое описание:" in response:
-                type_part, summary_part = response.split("Краткое описание:")
-                event_type = type_part.split("Тип:")[1].strip()
-                summary = summary_part.strip()
+                parts = response.split("Краткое описание:")
+                type_part = parts[0]
+                if "Тип:" in type_part:
+                    event_type = type_part.split("Тип:")[1].strip()
+                    # Validate event type
+                    valid_types = ["Отчетность", "РЦБ", "Суд", "Нет"]
+                    if event_type not in valid_types:
+                        event_type = "Нет"
+                
+                if len(parts) > 1:
+                    summary = parts[1].strip()
             
             return event_type, summary
             
@@ -103,29 +107,62 @@ class FallbackLLMSystem:
 
     def estimate_impact(self, text, entity):
         """Estimate impact using MT5"""
-        prompt = f"""Task: Analyze news impact on company.
-        Company: {entity}
-        News: {text}
-        Impact categories:
-        - Значительный риск убытков
-        - Умеренный риск убытков
-        - Незначительный риск убытков
-        - Вероятность прибыли
-        - Неопределенный эффект
-        Format:
-        Impact: [category]
-        Reasoning: [two sentence explanation]"""
+        # Initialize default return values
+        impact = "Неопределенный эффект"
+        reasoning = "Не удалось определить влияние"
         
         try:
-            response = self._generate_text(prompt)
+            prompt = f"""<s>Analyze impact of news about company {entity}:
+
+{text}
+
+Classify impact as one of:
+- Значительный риск убытков
+- Умеренный риск убытков
+- Незначительный риск убытков
+- Вероятность прибыли
+- Неопределенный эффект
+
+Format response as:
+Impact: [category]
+Reasoning: [explanation]</s>"""
             
-            impact = "Неопределенный эффект"
-            reasoning = "Не удалось определить влияние"
+            inputs = self.tokenizer(
+                prompt,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=512
+            ).to(self.device)
+            
+            outputs = self.model.generate(
+                **inputs,
+                max_length=200,
+                num_return_sequences=1,
+                do_sample=False,
+                pad_token_id=self.tokenizer.pad_token_id
+            )
+            
+            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
             
             if "Impact:" in response and "Reasoning:" in response:
-                impact_part, reasoning_part = response.split("Reasoning:")
-                impact = impact_part.split("Impact:")[1].strip()
-                reasoning = reasoning_part.strip()
+                parts = response.split("Reasoning:")
+                impact_part = parts[0]
+                if "Impact:" in impact_part:
+                    impact = impact_part.split("Impact:")[1].strip()
+                    # Validate impact category
+                    valid_impacts = [
+                        "Значительный риск убытков",
+                        "Умеренный риск убытков",
+                        "Незначительный риск убытков",
+                        "Вероятность прибыли",
+                        "Неопределенный эффект"
+                    ]
+                    if impact not in valid_impacts:
+                        impact = "Неопределенный эффект"
+                
+                if len(parts) > 1:
+                    reasoning = parts[1].strip()
             
             return impact, reasoning
             
@@ -725,7 +762,7 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.47):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.48):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
 
