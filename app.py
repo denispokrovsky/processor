@@ -20,20 +20,19 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import Optional
 from deep_translator import GoogleTranslator
 from googletrans import Translator as LegacyTranslator
+import torch
 from transformers import (
-    pipeline, 
-    AutoModelForSeq2SeqLM, 
-    AutoTokenizer,
-    AutoModelForCausalLM  # Added as alternative
+    pipeline,
+    AutoModelForSeq2SeqLM,
+    AutoTokenizer
 )
-
 
 class FallbackLLMSystem:
     def __init__(self):
         """Initialize fallback models for event detection and reasoning"""
         try:
             # Initialize MT5 model (multilingual T5)
-            self.model_name = "google/mt5-small"  # Smaller, efficient multilingual model
+            self.model_name = "google/mt5-small"
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
             
@@ -217,7 +216,6 @@ def process_file(uploaded_file, model_choice, translation_method=None):
     try:
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
-        fallback_llm = FallbackLLMSystem()  # Initialize fallback system
         translator = TranslationSystem(batch_size=5)
         
         # Initialize all required columns first
@@ -326,7 +324,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         
     except Exception as e:
         st.error(f"❌ Ошибка при обработке файла: {str(e)}")
-        return df if df is not None else None
+        return None
 
 def translate_reasoning_to_russian(llm, text):
     template = """
@@ -725,7 +723,7 @@ def create_output_file(df, uploaded_file, llm):
     return output
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.45):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.46):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
 
@@ -783,32 +781,50 @@ def main():
     uploaded_file = st.sidebar.file_uploader("Выбирайте Excel-файл", type="xlsx", key="unique_file_uploader")
     
     if uploaded_file is not None and st.session_state.processed_df is None:
-        st.session_state.processed_df = process_file(
-            uploaded_file,
-            model_choice,
-            translation_method = 'auto' # This parameter won't affect the translation method but keeps the interface consistent
-        )
-    
-        st.subheader("Предпросмотр данных")
-        preview_df = st.session_state.processed_df[['Объект', 'Заголовок', 'Sentiment', 'Impact']].head()
-        st.dataframe(preview_df)
-        
-        # Add preview of Monitoring results
-        st.subheader("Предпросмотр мониторинга событий и риск-факторов эмитентов")
-        monitoring_df = st.session_state.processed_df[
-            (st.session_state.processed_df['Event_Type'] != 'Нет') & 
-            (st.session_state.processed_df['Event_Type'].notna())
-        ][['Объект', 'Заголовок', 'Event_Type', 'Event_Summary']].head()
-        
-        if len(monitoring_df) > 0:
-            st.dataframe(monitoring_df)
-        else:
-            st.info("Не обнаружено значимых событий для мониторинга")
+        try:
+            st.session_state.processed_df = process_file(
+                uploaded_file,
+                model_choice,
+                translation_method='auto'
+            )
+            
+            if st.session_state.processed_df is not None:
+                # Show preview with safe column access
+                st.subheader("Предпросмотр данных")
+                preview_columns = ['Объект', 'Заголовок']
+                if 'Sentiment' in st.session_state.processed_df.columns:
+                    preview_columns.append('Sentiment')
+                if 'Impact' in st.session_state.processed_df.columns:
+                    preview_columns.append('Impact')
+                    
+                preview_df = st.session_state.processed_df[preview_columns].head()
+                st.dataframe(preview_df)
+                
+                # Show monitoring results
+                st.subheader("Предпросмотр мониторинга событий и риск-факторов эмитентов")
+                if 'Event_Type' in st.session_state.processed_df.columns:
+                    monitoring_df = st.session_state.processed_df[
+                        (st.session_state.processed_df['Event_Type'] != 'Нет') & 
+                        (st.session_state.processed_df['Event_Type'].notna())
+                    ][['Объект', 'Заголовок', 'Event_Type', 'Event_Summary']].head()
+                    
+                    if len(monitoring_df) > 0:
+                        st.dataframe(monitoring_df)
+                    else:
+                        st.info("Не обнаружено значимых событий для мониторинга")
+                        
+                # Create analysis data
+                analysis_df = create_analysis_data(st.session_state.processed_df)
+                st.subheader("Анализ")
+                st.dataframe(analysis_df)
+                
+            else:
+                st.error("Ошибка при обработке файла")
+                
+        except Exception as e:
+            st.error(f"Ошибка при обработке файла: {str(e)}")
+            st.session_state.processed_df = None
 
-
-        analysis_df = create_analysis_data(st.session_state.processed_df)
-        st.subheader("Анализ")
-        st.dataframe(analysis_df)
         
        
         output = create_output_file(st.session_state.processed_df, uploaded_file, llm)
