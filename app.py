@@ -30,7 +30,16 @@ class TranslationSystem:
         """
         self.method = method
         self.llm = llm
-        self.google_translator = GoogleTranslator() if method == 'googletrans' else None
+        if method == 'googletrans':
+            try:
+                self.google_translator = GoogleTranslator()
+                # Test the translator with a simple string
+                self.google_translator.translate('test', src='en', dest='ru')
+            except Exception as e:
+                st.warning(f"Error initializing Google Translator: {str(e)}. Falling back to LLM translation.")
+                self.method = 'llm'
+        else:
+            self.google_translator = None
         
     def translate_text(self, text, src='ru', dest='en'):
         """
@@ -44,51 +53,96 @@ class TranslationSystem:
         Returns:
             str: Translated text
         """
-        if pd.isna(text) or not text.strip():
+        if pd.isna(text) or not isinstance(text, str) or not text.strip():
             return text
             
         try:
-            if self.method == 'googletrans':
+            if self.method == 'googletrans' and self.google_translator:
                 return self._translate_with_googletrans(text, src, dest)
             else:
                 return self._translate_with_llm(text, src, dest)
         except Exception as e:
-            st.warning(f"Translation error: {str(e)}")
+            st.warning(f"Translation error: {str(e)}. Returning original text.")
             return text
             
     def _translate_with_googletrans(self, text, src='ru', dest='en'):
         """
-        Translate using googletrans library.
+        Translate using googletrans library with improved error handling.
         """
         try:
+            # Clean and validate input text
+            text = text.strip()
+            if not text:
+                return text
+                
             # Add delay to avoid rate limits
             time.sleep(0.5)
-            result = self.google_translator.translate(text, src=src, dest=dest)
-            return result.text
+            
+            # Attempt translation with retry logic
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    result = self.google_translator.translate(text, src=src, dest=dest)
+                    if result and result.text:
+                        return result.text
+                    raise Exception("Empty translation result")
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    time.sleep(1)  # Wait before retry
+                    
+            raise Exception("All translation attempts failed")
+            
         except Exception as e:
+            # If googletrans fails, fall back to LLM translation
+            if self.llm:
+                st.warning(f"Googletrans error: {str(e)}. Falling back to LLM translation.")
+                return self._translate_with_llm(text, src, dest)
             raise Exception(f"Googletrans error: {str(e)}")
             
     def _translate_with_llm(self, text, src='ru', dest='en'):
         """
-        Translate using LangChain LLM.
+        Translate using LangChain LLM with improved error handling.
         """
         if not self.llm:
             raise Exception("LLM not initialized for translation")
             
-        messages = [
-            {"role": "system", "content": "You are a translator. Translate the given Russian text to English accurately and concisely."},
-            {"role": "user", "content": f"Translate this Russian text to English: {text}"}
-        ]
-        
         try:
+            # Clean input text
+            text = text.strip()
+            if not text:
+                return text
+                
+            # Prepare system message based on language direction
+            if src == 'ru' and dest == 'en':
+                system_msg = "You are a translator. Translate the given Russian text to English accurately and concisely."
+                user_msg = f"Translate this Russian text to English: {text}"
+            elif src == 'en' and dest == 'ru':
+                system_msg = "You are a translator. Translate the given English text to Russian accurately and concisely."
+                user_msg = f"Translate this English text to Russian: {text}"
+            else:
+                raise Exception(f"Unsupported language pair: {src} to {dest}")
+            
+            messages = [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": user_msg}
+            ]
+            
             response = self.llm.invoke(messages)
             
+            # Handle different response types
             if hasattr(response, 'content'):
-                return response.content.strip()
+                translation = response.content.strip()
             elif isinstance(response, str):
-                return response.strip()
+                translation = response.strip()
             else:
-                return str(response).strip()
+                translation = str(response).strip()
+                
+            if not translation:
+                raise Exception("Empty translation result")
+                
+            return translation
+            
         except Exception as e:
             raise Exception(f"LLM translation error: {str(e)}")
 
@@ -564,7 +618,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.32 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.33 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
