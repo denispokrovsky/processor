@@ -49,7 +49,7 @@ class TranslationSystem:
             self.translator = DeepGoogleTranslator()
             self.method = 'deep-google'
             # Test translation
-            test_result = self.translator.translate(text='test', source='en', target='ru')
+            test_result = self.translator.translate(text='test', source='ru', target='en')
             if not test_result:
                 raise Exception("Deep translator test failed")
                 
@@ -677,7 +677,7 @@ def create_output_file(df, uploaded_file, llm):
 
 def main():
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.36 ):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.37 ):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС ")
         
         model_choice = st.radio(
