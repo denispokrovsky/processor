@@ -29,6 +29,40 @@ from transformers import (
     AutoModelForCausalLM  # 4 Qwen
 )
 
+from threading import Event
+import threading
+from queue import Queue
+
+class ProcessControl:
+    def __init__(self):
+        self.pause_event = Event()
+        self.stop_event = Event()
+        self.pause_event.set()  # Start in non-paused state
+        
+    def pause(self):
+        self.pause_event.clear()
+        
+    def resume(self):
+        self.pause_event.set()
+        
+    def stop(self):
+        self.stop_event.set()
+        self.pause_event.set()  # Ensure not stuck in pause
+        
+    def reset(self):
+        self.stop_event.clear()
+        self.pause_event.set()
+        
+    def is_paused(self):
+        return not self.pause_event.is_set()
+        
+    def is_stopped(self):
+        return self.stop_event.is_set()
+        
+    def wait_if_paused(self):
+        self.pause_event.wait()
+
+
 class FallbackLLMSystem:
     def __init__(self):
         """Initialize fallback models for event detection and reasoning"""
@@ -249,98 +283,197 @@ class QwenSystem:
             raise
 
 
-class TranslationSystem:
-    def __init__(self, batch_size=5):
-        """
-        Initialize translation system using Helsinki NLP model.
-        """
+class ProcessingUI:
+    def __init__(self):
+        if 'control' not in st.session_state:
+            st.session_state.control = ProcessControl()
+        if 'negative_container' not in st.session_state:
+            st.session_state.negative_container = st.empty()
+        if 'events_container' not in st.session_state:
+            st.session_state.events_container = st.empty()
+            
+        # Create control buttons
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⏸️ Pause/Resume" if not st.session_state.control.is_paused() else "▶️ Resume", key="pause_button"):
+                if st.session_state.control.is_paused():
+                    st.session_state.control.resume()
+                else:
+                    st.session_state.control.pause()
+                    
+        with col2:
+            if st.button("⏹️ Stop", key="stop_button"):
+                st.session_state.control.stop()
+                
+        self.progress_bar = st.progress(0)
+        self.status = st.empty()
+        
+    def update_progress(self, current, total):
+        progress = current / total
+        self.progress_bar.progress(progress)
+        self.status.text(f"Processing {current} of {total} items...")
+        
+    def show_negative(self, entity, headline, analysis, impact=None):
+        with st.session_state.negative_container:
+            st.markdown(f"""
+            <div style='background-color: #ffebee; padding: 10px; border-radius: 5px; margin: 5px 0;'>
+                <strong style='color: #d32f2f;'>⚠️ Negative Alert:</strong><br>
+                <strong>Entity:</strong> {entity}<br>
+                <strong>News:</strong> {headline}<br>
+                <strong>Analysis:</strong> {analysis}<br>
+                {f"<strong>Impact:</strong> {impact}<br>" if impact else ""}
+            </div>
+            """, unsafe_allow_html=True)
+            
+    def show_event(self, entity, event_type, headline):
+        with st.session_state.events_container:
+            st.markdown(f"""
+            <div style='background-color: #e3f2fd; padding: 10px; border-radius: 5px; margin: 5px 0;'>
+                <strong style='color: #1976d2;'>🔔 Event Detected:</strong><br>
+                <strong>Entity:</strong> {entity}<br>
+                <strong>Type:</strong> {event_type}<br>
+                <strong>News:</strong> {headline}
+            </div>
+            """, unsafe_allow_html=True)
+
+class EventDetectionSystem:
+    def __init__(self):
         try:
-            self.translator = pipeline("translation", model="Helsinki-NLP/opus-mt-ru-en")  # Note: ru-en for Russian to English
-            self.batch_size = batch_size
+            # Initialize models with specific labels
+            self.finbert = pipeline(
+                "text-classification", 
+                model="ProsusAI/finbert",
+                return_all_scores=True
+            )
+            self.business_classifier = pipeline(
+                "text-classification", 
+                model="yiyanghkust/finbert-tone",
+                return_all_scores=True
+            )
+            st.success("BERT models initialized for event detection")
         except Exception as e:
-            st.error(f"Error initializing Helsinki NLP translator: {str(e)}")
+            st.error(f"Error initializing BERT models: {str(e)}")
+            raise
+
+    def detect_event_type(self, text, entity):
+        event_type = "Нет"
+        summary = ""
+        
+        try:
+            # Ensure text is properly formatted
+            text = str(text).strip()
+            if not text:
+                return "Нет", "Empty text"
+
+            # Get predictions
+            finbert_scores = self.finbert(
+                text,
+                truncation=True,
+                max_length=512
+            )
+            business_scores = self.business_classifier(
+                text,
+                truncation=True,
+                max_length=512
+            )
+            
+            # Get highest scoring predictions
+            finbert_pred = max(finbert_scores[0], key=lambda x: x['score'])
+            business_pred = max(business_scores[0], key=lambda x: x['score'])
+            
+            # Map to event types with confidence threshold
+            confidence_threshold = 0.6
+            max_confidence = max(finbert_pred['score'], business_pred['score'])
+            
+            if max_confidence >= confidence_threshold:
+                if any(term in text.lower() for term in ['отчет', 'выручка', 'прибыль', 'ebitda']):
+                    event_type = "Отчетность"
+                    summary = f"Финансовая отчетность (confidence: {max_confidence:.2f})"
+                elif any(term in text.lower() for term in ['облигаци', 'купон', 'дефолт', 'реструктуризац']):
+                    event_type = "РЦБ"
+                    summary = f"Событие РЦБ (confidence: {max_confidence:.2f})"
+                elif any(term in text.lower() for term in ['суд', 'иск', 'арбитраж']):
+                    event_type = "Суд"
+                    summary = f"Судебное разбирательство (confidence: {max_confidence:.2f})"
+            
+            if event_type != "Нет":
+                summary += f"\nКомпания: {entity}"
+            
+            return event_type, summary
+            
+        except Exception as e:
+            st.warning(f"Event detection error: {str(e)}")
+            return "Нет", "Error in event detection"
+
+class TranslationSystem:
+    def __init__(self):
+        """Initialize translation system using Helsinki NLP model"""
+        try:
+            self.translator = pipeline("translation", model="Helsinki-NLP/opus-mt-ru-en")
+            st.success("Translation system initialized")
+        except Exception as e:
+            st.error(f"Error initializing translator: {str(e)}")
             raise
     
     def translate_text(self, text):
-        """
-        Translate single text using Helsinki NLP model with chunking for long texts.
-        """
         if pd.isna(text) or not isinstance(text, str) or not text.strip():
-            return text
+            return str(text) if pd.notna(text) else ""
             
         text = str(text).strip()
         if not text:
-            return text
+            return ""
             
         try:
-            # Helsinki NLP model typically has a max length limit
-            max_chunk_size = 512  # Standard transformer length
-            
-            if len(text.split()) <= max_chunk_size:
-                # Direct translation for short texts
-                result = self.translator(text, max_length=512)
-                return result[0]['translation_text']
-            
-            # Split long text into chunks by sentences
+            max_chunk_size = 450
             chunks = self._split_into_chunks(text, max_chunk_size)
             translated_chunks = []
             
             for chunk in chunks:
-                result = self.translator(chunk, max_length=512)
-                translated_chunks.append(result[0]['translation_text'])
-                time.sleep(0.1)  # Small delay between chunks
+                if not chunk.strip():
+                    continue
+                    
+                try:
+                    result = self.translator(chunk, max_length=512)
+                    if result and isinstance(result, list) and len(result) > 0:
+                        translated_chunks.append(result[0].get('translation_text', chunk))
+                    else:
+                        translated_chunks.append(chunk)
+                except Exception as e:
+                    st.warning(f"Chunk translation error: {str(e)}")
+                    translated_chunks.append(chunk)
+                time.sleep(0.1)
                 
             return ' '.join(translated_chunks)
             
         except Exception as e:
-            st.warning(f"Translation error: {str(e)}. Using original text.")
+            st.warning(f"Translation error: {str(e)}")
             return text
-            
-    def _split_into_chunks(self, text, max_length):
-        """
-        Split text into chunks by sentences, respecting max length.
-        """
-        # Simple sentence splitting by common punctuation
-        sentences = [s.strip() for s in text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
         
-        chunks = []
-        current_chunk = []
-        current_length = 0
-        
-        for sentence in sentences:
-            sentence_length = len(sentence.split())
-            
-            if current_length + sentence_length > max_length:
-                if current_chunk:
-                    chunks.append(' '.join(current_chunk))
-                current_chunk = [sentence]
-                current_length = sentence_length
-            else:
-                current_chunk.append(sentence)
-                current_length += sentence_length
-        
-        if current_chunk:
-            chunks.append(' '.join(current_chunk))
-            
-        return chunks
-    
 
 
 def process_file(uploaded_file, model_choice, translation_method=None):
     df = None
     try:
+        # Initialize UI and control systems
+        ui = ProcessingUI()
+        translator = TranslationSystem()
+        event_detector = EventDetectionSystem()
+        
+        # Load and prepare data
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
         llm = init_langchain_llm(model_choice)
-        # Add fallback initialization here
-        fallback_llm = FallbackLLMSystem() if model_choice != "Local-MT5" else llm
-        translator = TranslationSystem(batch_size=5)
         
-        # Pre-initialize Groq for impact estimation
+        # Initialize Groq for impact estimation
         groq_llm = ensure_groq_llm()
         if groq_llm is None:
             st.warning("Failed to initialize Groq LLM for impact estimation. Using fallback model.")
         
-        # Initialize all required columns first
+        # Prepare dataframe
+        text_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
+        for col in text_columns:
+            df[col] = df[col].fillna('').astype(str).apply(lambda x: x.strip())
+            
+        # Initialize required columns
         df['Translated'] = ''
         df['Sentiment'] = ''
         df['Impact'] = ''
@@ -348,104 +481,104 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         df['Event_Type'] = ''
         df['Event_Summary'] = ''
         
-        # Validate required columns
-        required_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            st.error(f"Error: The following required columns are missing: {', '.join(missing_columns)}")
-            return None
-        
         # Deduplication
-        original_news_count = len(df)
+        original_count = len(df)
         df = df.groupby('Объект', group_keys=False).apply(
             lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
         ).reset_index(drop=True)
-    
-        remaining_news_count = len(df)
-        duplicates_removed = original_news_count - remaining_news_count
-        st.write(f"Из {original_news_count} новостных сообщений удалены {duplicates_removed} дублирующих. Осталось {remaining_news_count}.")
-
-        # Initialize progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        st.write(f"Removed {original_count - len(df)} duplicates.")
         
-        # Process in batches
-        batch_size = 5
-        for i in range(0, len(df), batch_size):
-            batch_df = df.iloc[i:i+batch_size]
-            
-            for idx, row in batch_df.iterrows():
-                try:
-                    # Translation with Helsinki NLP
-                    translated_text = translator.translate_text(row['Выдержки из текста'])
-                    df.at[idx, 'Translated'] = translated_text
-                    
-                    # Sentiment analysis
-                    sentiment = analyze_sentiment(translated_text)
-                    df.at[idx, 'Sentiment'] = sentiment
-                    
+        # Process rows
+        total_rows = len(df)
+        processed_rows = 0
+        
+        for idx, row in df.iterrows():
+            # Check for stop/pause
+            if st.session_state.control.is_stopped():
+                st.warning("Processing stopped by user")
+                break
+                
+            st.session_state.control.wait_if_paused()
+            if st.session_state.control.is_paused():
+                st.info("Processing paused... Click Resume to continue")
+                continue
+                
+            try:
+                # Translation
+                translated_text = translator.translate_text(row['Выдержки из текста'])
+                df.at[idx, 'Translated'] = translated_text
+                
+                # Sentiment analysis
+                sentiment = analyze_sentiment(translated_text)
+                df.at[idx, 'Sentiment'] = sentiment
+                
+                # Event detection using BERT
+                event_type, event_summary = event_detector.detect_event_type(
+                    translated_text,
+                    row['Объект']
+                )
+                df.at[idx, 'Event_Type'] = event_type
+                df.at[idx, 'Event_Summary'] = event_summary
+                
+                # Show events in real-time
+                if event_type != "Нет":
+                    ui.show_event(
+                        row['Объект'],
+                        event_type,
+                        row['Заголовок']
+                    )
+                
+                # Handle negative sentiment
+                if sentiment == "Negative":
                     try:
-                        # Try with primary LLM
-                        event_type, event_summary = detect_events(
-                            llm,
-                            row['Выдержки из текста'],
+                        impact, reasoning = estimate_impact(
+                            groq_llm if groq_llm is not None else llm,
+                            translated_text,
                             row['Объект']
                         )
                     except Exception as e:
+                        impact = "Неопределенный эффект"
+                        reasoning = "Error in impact estimation"
                         if 'rate limit' in str(e).lower():
-                            st.warning("Rate limit reached. Using fallback model for event detection.")
-                            event_type, event_summary = fallback_llm.detect_events(
-                                row['Выдержки из текста'],
-                                row['Объект']
-                            )
-
-                    df.at[idx, 'Event_Type'] = event_type
-                    df.at[idx, 'Event_Summary'] = event_summary
+                            st.warning("Rate limit reached. Using fallback values.")
                     
+                    df.at[idx, 'Impact'] = impact
+                    df.at[idx, 'Reasoning'] = reasoning
                     
-                            # Similar for impact estimation
-                    if sentiment == "Negative":
-                        try:
-                            impact, reasoning = estimate_impact(
-                                groq_llm if groq_llm is not None else llm,
-                                translated_text,
-                                row['Объект']
-                            )
-                            df.at[idx, 'Impact'] = impact
-                            df.at[idx, 'Reasoning'] = reasoning
-                        except Exception as e:
-                            if 'rate limit' in str(e).lower():
-                                st.warning("Groq rate limit reached. Waiting before retry...")
-                                time.sleep(240)  # Wait 4 minutes
-                                continue
-
-                        df.at[idx, 'Impact'] = impact
-                        df.at[idx, 'Reasoning'] = reasoning
-                    
-                    # Update progress
-                    progress = (idx + 1) / len(df)
-                    progress_bar.progress(progress)
-                    status_text.text(f"Проанализировано {idx + 1} из {len(df)} новостей")
-                    
-                except Exception as e:
-                    if 'rate limit' in str(e).lower():
-                        wait_time = 240  # 4 minutes wait for rate limit
-                        st.warning(f"Rate limit reached. Waiting {wait_time} seconds...")
-                        time.sleep(wait_time)
-                        continue
-                    st.warning(f"Ошибка при обработке новости {idx + 1}: {str(e)}")
-                    continue
+                    # Show negative alert in real-time
+                    ui.show_negative(
+                        row['Объект'],
+                        row['Заголовок'],
+                        reasoning,
+                        impact
+                    )
                 
-                # Small delay between items
-                time.sleep(0.5)
+                # Update progress
+                processed_rows += 1
+                ui.update_progress(processed_rows, total_rows)
+                
+            except Exception as e:
+                st.warning(f"Error processing row {idx + 1}: {str(e)}")
+                continue
             
-            # Delay between batches
-            time.sleep(2)
+            time.sleep(0.1)
+        
+        # Handle stopped processing
+        if st.session_state.control.is_stopped() and len(df) > 0:
+            st.warning("Processing was stopped. Showing partial results.")
+            if st.button("Download Partial Results"):
+                output = create_output_file(df, uploaded_file, llm)
+                st.download_button(
+                    label="📊 Download Partial Results",
+                    data=output,
+                    file_name="partial_analysis.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
         
         return df
         
     except Exception as e:
-        st.error(f"❌ Ошибка при обработке файла: {str(e)}")
+        st.error(f"Error processing file: {str(e)}")
         return None
 
 def translate_reasoning_to_russian(llm, text):
@@ -539,81 +672,33 @@ def get_mapped_sentiment(result):
 
 
 def analyze_sentiment(text):
-    finbert_result = get_mapped_sentiment(finbert(text, truncation=True, max_length=512)[0])
-    roberta_result = get_mapped_sentiment(roberta(text, truncation=True, max_length=512)[0])
-    finbert_tone_result = get_mapped_sentiment(finbert_tone(text, truncation=True, max_length=512)[0])
-    
-    # Consider sentiment negative if any model says it's negative
-    if any(result == "Negative" for result in [finbert_result, roberta_result, finbert_tone_result]):
-        return "Negative"
-    elif all(result == "Positive" for result in [finbert_result, roberta_result, finbert_tone_result]):
-        return "Positive"
-    return "Neutral"
-
-def analyze_sentiment(text):
-    finbert_result = get_mapped_sentiment(finbert(text, truncation=True, max_length=512)[0])
-    roberta_result = get_mapped_sentiment(roberta(text, truncation=True, max_length=512)[0])
-    finbert_tone_result = get_mapped_sentiment(finbert_tone(text, truncation=True, max_length=512)[0])
-    
-    # Count occurrences of each sentiment
-    sentiments = [finbert_result, roberta_result, finbert_tone_result]
-    sentiment_counts = {s: sentiments.count(s) for s in set(sentiments)}
-    
-    # Return sentiment if at least two models agree, otherwise return Neutral
-    for sentiment, count in sentiment_counts.items():
-        if count >= 2:
-            return sentiment
-    return "Neutral"
-
-
-def detect_events(llm, text, entity):
-    """
-    Detect events in news text. This function works with both API-based LLMs and local models.
-    """
-    # Initialize default return values
-    event_type = "Нет"
-    summary = ""
-    
     try:
-        # Handle API-based LLMs (Groq, GPT-4, Qwen)
-        if hasattr(llm, 'invoke'):
-            template = """
-            Проанализируйте следующую новость о компании "{entity}" и определите наличие следующих событий:
-            1. Публикация отчетности и ключевые показатели (выручка, прибыль, EBITDA)
-            2. События на рынке ценных бумаг (погашение облигаций, выплата/невыплата купона, дефолт, реструктуризация)
-            3. Судебные иски или юридические действия против компании, акционеров, менеджеров
-
-            Новость: {text}
-
-            Ответьте в следующем формате:
-            Тип: ["Отчетность" или "РЦБ" или "Суд" или "Нет"]
-            Краткое описание: [краткое описание события на русском языке, не более 2 предложений]
-            """
-            
-            prompt = PromptTemplate(template=template, input_variables=["entity", "text"])
-            chain = prompt | llm
-            response = chain.invoke({"entity": entity, "text": text})
-            
-            response_text = response.content if hasattr(response, 'content') else str(response)
-            
-            if "Тип:" in response_text and "Краткое описание:" in response_text:
-                type_part, summary_part = response_text.split("Краткое описание:")
-                event_type_temp = type_part.split("Тип:")[1].strip()
-                # Validate event type
-                valid_types = ["Отчетность", "РЦБ", "Суд", "Нет"]
-                if event_type_temp in valid_types:
-                    event_type = event_type_temp
-                summary = summary_part.strip()
-                
-        # Handle local MT5 model
-        else:
-            # Assuming llm is FallbackLLMSystem instance
-            event_type, summary = llm.detect_events(text, entity)
-            
-    except Exception as e:
-        st.warning(f"Ошибка при анализе событий: {str(e)}")
+        finbert_result = get_mapped_sentiment(
+            finbert(text, truncation=True, max_length=512)[0]
+        )
+        roberta_result = get_mapped_sentiment(
+            roberta(text, truncation=True, max_length=512)[0]
+        )
+        finbert_tone_result = get_mapped_sentiment(
+            finbert_tone(text, truncation=True, max_length=512)[0]
+        )
         
-    return event_type, summary
+        # Count occurrences of each sentiment
+        sentiments = [finbert_result, roberta_result, finbert_tone_result]
+        sentiment_counts = {s: sentiments.count(s) for s in set(sentiments)}
+        
+        # Return sentiment if at least two models agree
+        for sentiment, count in sentiment_counts.items():
+            if count >= 2:
+                return sentiment
+                
+        # Default to Neutral if no agreement
+        return "Neutral"
+        
+    except Exception as e:
+        st.warning(f"Sentiment analysis error: {str(e)}")
+        return "Neutral"
+
 
 def fuzzy_deduplicate(df, column, threshold=50):
     seen_texts = []
@@ -852,12 +937,13 @@ def create_output_file(df, uploaded_file, llm):
     wb.save(output)
     output.seek(0)
     return output
-def main():
-    with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.51):::")
-        st.subheader("по материалам СКАН-ИНТЕРФАКС ")
-        
 
+def main():
+    st.set_page_config(layout="wide")
+    
+    with st.sidebar:
+        st.title("::: AI-анализ мониторинга новостей (v.3.54):::")
+        st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
             "Выберите модель для анализа:",
@@ -865,53 +951,75 @@ def main():
             key="model_selector",
             help="Выберите модель для анализа новостей"
         )
+        
+        uploaded_file = st.file_uploader(
+            "Выбирайте Excel-файл",
+            type="xlsx",
+            key="file_uploader"
+        )
+        
         st.markdown(
-        """
-        Использованы технологии:  
-        - Анализ естественного языка с помощью предтренированных нейросетей **BERT**,<br/>
-	    - Дополнительная обработка при помощи больших языковых моделей (**LLM**),<br/>
-	    - объединенные при помощи	фреймворка **LangChain**.<br>
-        """,
-        unsafe_allow_html=True)
-
-        with st.expander("ℹ️ Инструкция"):
-            st.markdown("""
-            1. Выберите модель для анализа
-            2. Выберите метод перевода
-            3. Загрузите Excel файл с новостями
-            4. Дождитесь завершения анализа
-            5. Скачайте результаты анализа в формате Excel
-            """, unsafe_allow_html=True)
-
-   
-        st.markdown(
-        """
-        <style>
-        .signature {
-            position: fixed;
-            right: 12px;
-            up: 12px;
-            font-size: 14px;
-            color: #FF0000;
-            opacity: 0.9;
-            z-index: 999;
-        }
-        </style>
-        <div class="signature">denis.pokrovsky.npff</div>
-        """,
-        unsafe_allow_html=True
+            """
+            Использованы технологии:  
+            - Анализ естественного языка с помощью предтренированных нейросетей **BERT**
+            - Дополнительная обработка при помощи больших языковых моделей (**LLM**)
+            - Фреймворк **LangChain** для оркестрации
+            """,
+            unsafe_allow_html=True
         )
 
+    # Main content area
     st.title("Анализ мониторинга новостей")
     
+    # Initialize session state
     if 'processed_df' not in st.session_state:
         st.session_state.processed_df = None
+        
+    # Create display areas
+    col1, col2 = st.columns([2, 1])
     
-    # Single file uploader with unique key
-    uploaded_file = st.sidebar.file_uploader("Выбирайте Excel-файл", type="xlsx", key="unique_file_uploader")
+    with col1:
+        # Area for real-time updates
+        st.subheader("Live Updates")
+        st.markdown("""
+            <style>
+            .stProgress .st-bo {
+                background-color: #f0f2f6;
+            }
+            .negative-alert {
+                background-color: #ffebee;
+                border-left: 5px solid #f44336;
+                padding: 10px;
+                margin: 5px 0;
+            }
+            .event-alert {
+                background-color: #e3f2fd;
+                border-left: 5px solid #2196f3;
+                padding: 10px;
+                margin: 5px 0;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+        
+    with col2:
+        # Area for statistics
+        st.subheader("Statistics")
+        if st.session_state.processed_df is not None:
+            st.metric("Total Items", len(st.session_state.processed_df))
+            st.metric("Negative Items", 
+                len(st.session_state.processed_df[
+                    st.session_state.processed_df['Sentiment'] == 'Negative'
+                ])
+            )
+            st.metric("Events Detected", 
+                len(st.session_state.processed_df[
+                    st.session_state.processed_df['Event_Type'] != 'Нет'
+                ])
+            )
     
     if uploaded_file is not None and st.session_state.processed_df is None:
-        start_time = time.time() 
+        start_time = time.time()
+        
         try:
             st.session_state.processed_df = process_file(
                 uploaded_file,
@@ -920,63 +1028,58 @@ def main():
             )
             
             if st.session_state.processed_df is not None:
-                # Show preview with safe column access
-                st.subheader("Предпросмотр данных")
-                preview_columns = ['Объект', 'Заголовок']
-                if 'Sentiment' in st.session_state.processed_df.columns:
-                    preview_columns.append('Sentiment')
-                if 'Impact' in st.session_state.processed_df.columns:
-                    preview_columns.append('Impact')
-                    
-                preview_df = st.session_state.processed_df[preview_columns].head()
-                st.dataframe(preview_df)
+                end_time = time.time()
+                elapsed_time = format_elapsed_time(end_time - start_time)
                 
-                # Show monitoring results
-                st.subheader("Предпросмотр мониторинга событий и риск-факторов эмитентов")
-                if 'Event_Type' in st.session_state.processed_df.columns:
-                    monitoring_df = st.session_state.processed_df[
-                        (st.session_state.processed_df['Event_Type'] != 'Нет') & 
-                        (st.session_state.processed_df['Event_Type'].notna())
-                    ][['Объект', 'Заголовок', 'Event_Type', 'Event_Summary']].head()
-                    
-                    if len(monitoring_df) > 0:
-                        st.dataframe(monitoring_df)
-                    else:
-                        st.info("Не обнаружено значимых событий для мониторинга")
-                        
-                # Create analysis data
-                analysis_df = create_analysis_data(st.session_state.processed_df)
-                st.subheader("Анализ")
-                st.dataframe(analysis_df)
+                # Show results
+                st.subheader("Results Summary")
                 
-            else:
-                st.error("Ошибка при обработке файла")
+                # Display statistics
+                stats_cols = st.columns(4)
+                with stats_cols[0]:
+                    st.metric("Total Processed", len(st.session_state.processed_df))
+                with stats_cols[1]:
+                    st.metric("Negative Items", 
+                        len(st.session_state.processed_df[
+                            st.session_state.processed_df['Sentiment'] == 'Negative'
+                        ])
+                    )
+                with stats_cols[2]:
+                    st.metric("Events Detected", 
+                        len(st.session_state.processed_df[
+                            st.session_state.processed_df['Event_Type'] != 'Нет'
+                        ])
+                    )
+                with stats_cols[3]:
+                    st.metric("Processing Time", elapsed_time)
+                
+                # Show data previews
+                with st.expander("📊 Data Preview", expanded=True):
+                    preview_cols = ['Объект', 'Заголовок', 'Sentiment', 'Event_Type']
+                    st.dataframe(
+                        st.session_state.processed_df[preview_cols],
+                        use_container_width=True
+                    )
+                
+                # Create downloadable report
+                output = create_output_file(
+                    st.session_state.processed_df,
+                    uploaded_file,
+                    init_langchain_llm(model_choice)
+                )
+                
+                st.download_button(
+                    label="📥 Download Full Report",
+                    data=output,
+                    file_name="analysis_report.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key='download_button'
+                )
                 
         except Exception as e:
-            st.error(f"Ошибка при обработке файла: {str(e)}")
+            st.error(f"Error processing file: {str(e)}")
             st.session_state.processed_df = None
 
-        
-       
-        
-        output = create_output_file(
-            st.session_state.processed_df, 
-            uploaded_file, 
-            init_langchain_llm(model_choice)  # Initialize new LLM instance
-        )
-
-
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        formatted_time = format_elapsed_time(elapsed_time)
-        st.success(f"Обработка и анализ завершены за {formatted_time}.")
-
-        st.download_button(
-            label="Скачать результат анализа",
-            data=output,
-            file_name="результат_анализа.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
 
 if __name__ == "__main__":
     main()

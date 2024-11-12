@@ -1,6 +1,5 @@
 streamlit
 pandas
-vaderSentiment
 transformers>=4.30.0
 torch
 tqdm
@@ -20,5 +19,4 @@ pdfkit
 Jinja2==3.1.2
 langchain_openai
 optimum
-googletrans
-deep_translator
+sentencepiece
