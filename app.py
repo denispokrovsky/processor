@@ -1063,8 +1063,63 @@ def create_output_file(df, uploaded_file, llm):
     try:
         wb = load_workbook("sample_file.xlsx")
         
-        # Rest of the code remains the same until the 'Анализ' sheet processing
+	    # Update 'Мониторинг' sheet with events
+        ws = wb['Мониторинг']
+        row_idx = 4
+        for _, row in df.iterrows():
+            if row['Event_Type'] != 'Нет':
+                ws.cell(row=row_idx, column=5, value=row['Объект'])  # Column E
+                ws.cell(row=row_idx, column=6, value=row['Заголовок'])  # Column F
+                ws.cell(row=row_idx, column=7, value=row['Event_Type'])  # Column G
+                ws.cell(row=row_idx, column=8, value=row['Event_Summary'])  # Column H
+                ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])  # Column I
+                row_idx += 1
+                   
+        # Sort entities by number of negative publications
+        entity_stats = pd.DataFrame({
+            'Объект': df['Объект'].unique(),
+            'Всего': df.groupby('Объект').size(),
+            'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int),
+            'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
+        }).sort_values('Негативные', ascending=False)
         
+        # Calculate most negative impact for each entity
+        entity_impacts = {}
+        for entity in df['Объект'].unique():
+            entity_df = df[df['Объект'] == entity]
+            negative_impacts = entity_df[entity_df['Sentiment'] == 'Negative']['Impact']
+            entity_impacts[entity] = negative_impacts.iloc[0] if len(negative_impacts) > 0 else 'Неопределенный эффект'
+        
+        # Update 'Сводка' sheet
+        ws = wb['Сводка']
+        for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
+            ws.cell(row=idx, column=5, value=entity)  # Column E
+            ws.cell(row=idx, column=6, value=row['Всего'])  # Column F
+            ws.cell(row=idx, column=7, value=row['Негативные'])  # Column G
+            ws.cell(row=idx, column=8, value=row['Позитивные'])  # Column H
+            ws.cell(row=idx, column=9, value=entity_impacts[entity])  # Column I
+        
+        # Update 'Значимые' sheet
+        ws = wb['Значимые']
+        row_idx = 3
+        for _, row in df.iterrows():
+            if row['Sentiment'] in ['Negative', 'Positive']:
+                ws.cell(row=row_idx, column=3, value=row['Объект'])  # Column C
+                ws.cell(row=row_idx, column=4, value='релевантно')   # Column D
+                ws.cell(row=row_idx, column=5, value=row['Sentiment']) # Column E
+                ws.cell(row=row_idx, column=6, value=row['Impact'])   # Column F
+                ws.cell(row=row_idx, column=7, value=row['Заголовок']) # Column G
+                ws.cell(row=row_idx, column=8, value=row['Выдержки из текста']) # Column H
+                row_idx += 1
+        
+        # Copy 'Публикации' sheet
+        original_df = pd.read_excel(uploaded_file, sheet_name='Публикации')
+        ws = wb['Публикации']
+        for r_idx, row in enumerate(dataframe_to_rows(original_df, index=False, header=True), start=1):
+            for c_idx, value in enumerate(row, start=1):
+                ws.cell(row=r_idx, column=c_idx, value=value)
+
+               
         # Update 'Анализ' sheet with modified translation handling
         ws = wb['Анализ']
         row_idx = 4
@@ -1085,7 +1140,15 @@ def create_output_file(df, uploaded_file, llm):
             ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])
             row_idx += 1
         
-        # Continue with the rest of the function...
+        # Update 'Тех.приложение' sheet
+        tech_df = df[['Объект', 'Заголовок', 'Выдержки из текста', 'Translated', 'Sentiment', 'Impact', 'Reasoning']]
+        if 'Тех.приложение' not in wb.sheetnames:
+            wb.create_sheet('Тех.приложение')
+        ws = wb['Тех.приложение']
+        for r_idx, row in enumerate(dataframe_to_rows(tech_df, index=False, header=True), start=1):
+            for c_idx, value in enumerate(row, start=1):
+                ws.cell(row=r_idx, column=c_idx, value=value)
+         
         
         output = io.BytesIO()
         wb.save(output)
@@ -1100,7 +1163,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.60):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.61):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
