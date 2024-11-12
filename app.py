@@ -77,10 +77,10 @@ class FallbackLLMSystem:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             self.model = self.model.to(self.device)
             
-            st.success(f"Successfully initialized MT5 model on {self.device}")
+            st.success(f"Пока все в порядке: запущена MT5 model on {self.device}")
             
         except Exception as e:
-            st.error(f"Error initializing MT5: {str(e)}")
+            st.error(f"Ошибка запуска модели MT5: {str(e)}")
             raise
 
     def invoke(self, prompt_args):
@@ -494,7 +494,7 @@ class EventDetectionSystem:
                 model="yiyanghkust/finbert-tone",
                 return_all_scores=True
             )
-            st.success("служебное сообщение: BERT-модели запущены для детекции новостей")
+            st.success("продолжается пока хорошо: BERT-модели запущены для детекции новостей")
         except Exception as e:
             st.error(f"Ошибка запуска BERT: {str(e)}")
             raise
@@ -557,7 +557,7 @@ class TranslationSystem:
             # Initialize fallback translator
             self.fallback_translator = GoogleTranslator(source='ru', target='en')
             self.legacy_translator = LegacyTranslator()
-            st.success("служебное сообщение: запустил систему перевода")
+            st.success("начинается все хорошо: запустил систему перевода")
         except Exception as e:
             st.error(f"Ошибка запуска перевода: {str(e)}")
             raise
@@ -1131,7 +1131,8 @@ def create_output_file(df, uploaded_file, llm):
             # Enhanced translation handling
             if pd.notna(row['Reasoning']):
                 try:
-                    translated_reasoning = translate_reasoning_to_russian(llm, row['Reasoning'])
+                    grlm = init_langchain_llm("Groq (llama-3.1-70b)")
+                    translated_reasoning = translate_reasoning_to_russian(grlm, row['Reasoning'])
                     ws.cell(row=row_idx, column=8, value=translated_reasoning)
                 except Exception as e:
                     st.warning(f"Translation error for row {row_idx}: {str(e)}")
@@ -1163,7 +1164,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.61):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.62):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
