@@ -967,8 +967,6 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 df.at[idx, 'Event_Type'] = event_type
                 df.at[idx, 'Event_Summary'] = event_summary
                 
-                # Update live statistics
-                ui.update_stats(row, sentiment, event_type)
 
                 # Show events in real-time
                 if event_type != "Нет":
@@ -977,6 +975,17 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                         event_type,
                         row['Заголовок']
                     )
+                
+                #Calculate processing speed (items per second)
+                time_delta = current_time - last_update_time
+                if time_delta > 0:
+                    processing_speed = 1 / time_delta  # items per second
+                else:
+                    processing_speed = 0
+                
+                # Update live statistics
+                ui.update_stats(row, sentiment, event_type, processing_speed)
+
                 
                 # Handle negative sentiment
                 if sentiment == "Negative":
@@ -1008,7 +1017,8 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 # Update progress
                 processed_rows += 1
                 ui.update_progress(processed_rows, total_rows)
-                
+                last_update_time = current_time
+
             except Exception as e:
                 st.warning(f"Ошибка в обработке ряда {idx + 1}: {str(e)}")
                 continue
@@ -1402,7 +1412,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.68!):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.69!):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
@@ -1427,6 +1437,23 @@ def main():
             """,
             unsafe_allow_html=True
         )
+
+        st.markdown(
+        """
+        <style>
+        .signature {
+            position: fixed;
+            right: 12px;
+            up: 12px;
+            font-size: 14px;
+            color: #FF0000;
+            opacity: 0.9;
+            z-index: 999;
+        }
+        </style>
+        <div class="signature">denis.pokrovsky.npff</div>
+        """,
+        unsafe_allow_html=True
 
     # Main content area
     st.title("Анализ мониторинга новостей")
