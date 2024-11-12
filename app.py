@@ -19,7 +19,6 @@ import time
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import Optional
 import torch
-
 from transformers import (
     pipeline,
     AutoModelForSeq2SeqLM,
@@ -293,14 +292,14 @@ class ProcessingUI:
         # Create control buttons
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("⏸️ Pause/Resume" if not st.session_state.control.is_paused() else "▶️ Resume", key="pause_button"):
+            if st.button("⏸️ Пауза/Возобновить" if not st.session_state.control.is_paused() else "▶️ Возобновить", key="pause_button"):
                 if st.session_state.control.is_paused():
                     st.session_state.control.resume()
                 else:
                     st.session_state.control.pause()
                     
         with col2:
-            if st.button("⏹️ Stop", key="stop_button"):
+            if st.button("⏹️ Стоп и всё", key="stop_button"):
                 st.session_state.control.stop()
                 
         self.progress_bar = st.progress(0)
@@ -309,7 +308,7 @@ class ProcessingUI:
     def update_progress(self, current, total):
         progress = current / total
         self.progress_bar.progress(progress)
-        self.status.text(f"Processing {current} of {total} items...")
+        self.status.text(f"Обрабатываем {current} из {total} сообщений...")
         
     def show_negative(self, entity, headline, analysis, impact=None):
         with st.session_state.negative_container:
@@ -447,6 +446,29 @@ class TranslationSystem:
             st.warning(f"Translation error: {str(e)}")
             return text
         
+    def _split_into_chunks(self, text, max_length):
+        sentences = []
+        for s in text.replace('!', '.').replace('?', '.').split('.'):
+            s = s.strip()
+            if s:
+                if len(s) > max_length:
+                    # Split long sentences into smaller chunks
+                    words = s.split()
+                    current_chunk = []
+                    current_length = 0
+                    for word in words:
+                        if current_length + len(word) > max_length:
+                            sentences.append(' '.join(current_chunk))
+                            current_chunk = [word]
+                            current_length = len(word)
+                        else:
+                            current_chunk.append(word)
+                            current_length += len(word) + 1
+                    if current_chunk:
+                        sentences.append(' '.join(current_chunk))
+                else:
+                    sentences.append(s)
+
 
 
 def process_file(uploaded_file, model_choice, translation_method=None):
@@ -484,7 +506,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         df = df.groupby('Объект', group_keys=False).apply(
             lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
         ).reset_index(drop=True)
-        st.write(f"Removed {original_count - len(df)} duplicates.")
+        st.write(f"Из {original_count} сообщений удалено {original_count - len(df)} дубликатов.")
         
         # Process rows
         total_rows = len(df)
@@ -493,12 +515,12 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         for idx, row in df.iterrows():
             # Check for stop/pause
             if st.session_state.control.is_stopped():
-                st.warning("Processing stopped by user")
+                st.warning("Обработку остановили")
                 break
                 
             st.session_state.control.wait_if_paused()
             if st.session_state.control.is_paused():
-                st.info("Processing paused... Click Resume to continue")
+                st.info("Обработка на паузе. Можно возобновить.")
                 continue
                 
             try:
@@ -538,7 +560,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                         impact = "Неопределенный эффект"
                         reasoning = "Error in impact estimation"
                         if 'rate limit' in str(e).lower():
-                            st.warning("Rate limit reached. Using fallback values.")
+                            st.warning("Лимит запросов исчерпался. Иду на fallback.")
                     
                     df.at[idx, 'Impact'] = impact
                     df.at[idx, 'Reasoning'] = reasoning
@@ -556,18 +578,18 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 ui.update_progress(processed_rows, total_rows)
                 
             except Exception as e:
-                st.warning(f"Error processing row {idx + 1}: {str(e)}")
+                st.warning(f"Ошибка в обработке ряда {idx + 1}: {str(e)}")
                 continue
             
             time.sleep(0.1)
         
         # Handle stopped processing
         if st.session_state.control.is_stopped() and len(df) > 0:
-            st.warning("Processing was stopped. Showing partial results.")
-            if st.button("Download Partial Results"):
+            st.warning("Обработку остановили. Показываю частичные результаты.")
+            if st.button("Скачать частичный результат"):
                 output = create_output_file(df, uploaded_file, llm)
                 st.download_button(
-                    label="📊 Download Partial Results",
+                    label="📊 Скачать частичный результат",
                     data=output,
                     file_name="partial_analysis.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -576,7 +598,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         return df
         
     except Exception as e:
-        st.error(f"Error processing file: {str(e)}")
+        st.error(f"Ошибка в обработке файла: {str(e)}")
         return None
 
 def translate_reasoning_to_russian(llm, text):
@@ -940,12 +962,12 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.54):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.56):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
             "Выберите модель для анализа:",
-            ["Qwen2.5-Coder", "Groq (llama-3.1-70b)", "ChatGPT-4-mini", "Local-MT5"],
+            ["Local-MT5", "Qwen2.5-Coder", "Groq (llama-3.1-70b)", "ChatGPT-4-mini"],
             key="model_selector",
             help="Выберите модель для анализа новостей"
         )
@@ -978,7 +1000,7 @@ def main():
     
     with col1:
         # Area for real-time updates
-        st.subheader("Live Updates")
+        st.subheader("Что найдено, сообщаю:")
         st.markdown("""
             <style>
             .stProgress .st-bo {
@@ -1001,15 +1023,15 @@ def main():
         
     with col2:
         # Area for statistics
-        st.subheader("Statistics")
+        st.subheader("Статистика")
         if st.session_state.processed_df is not None:
-            st.metric("Total Items", len(st.session_state.processed_df))
-            st.metric("Negative Items", 
+            st.metric("Всего статей", len(st.session_state.processed_df))
+            st.metric("Из них негативных", 
                 len(st.session_state.processed_df[
                     st.session_state.processed_df['Sentiment'] == 'Negative'
                 ])
             )
-            st.metric("Events Detected", 
+            st.metric("Событий обнаружено", 
                 len(st.session_state.processed_df[
                     st.session_state.processed_df['Event_Type'] != 'Нет'
                 ])
@@ -1030,29 +1052,29 @@ def main():
                 elapsed_time = format_elapsed_time(end_time - start_time)
                 
                 # Show results
-                st.subheader("Results Summary")
+                st.subheader("Итого по результатам")
                 
                 # Display statistics
                 stats_cols = st.columns(4)
                 with stats_cols[0]:
-                    st.metric("Total Processed", len(st.session_state.processed_df))
+                    st.metric("Всего обработано", len(st.session_state.processed_df))
                 with stats_cols[1]:
-                    st.metric("Negative Items", 
+                    st.metric("Негативных", 
                         len(st.session_state.processed_df[
                             st.session_state.processed_df['Sentiment'] == 'Negative'
                         ])
                     )
                 with stats_cols[2]:
-                    st.metric("Events Detected", 
+                    st.metric("Событий обнаружено", 
                         len(st.session_state.processed_df[
                             st.session_state.processed_df['Event_Type'] != 'Нет'
                         ])
                     )
                 with stats_cols[3]:
-                    st.metric("Processing Time", elapsed_time)
+                    st.metric("Время обработки составило", elapsed_time)
                 
                 # Show data previews
-                with st.expander("📊 Data Preview", expanded=True):
+                with st.expander("📊 Предпросмотр данных", expanded=True):
                     preview_cols = ['Объект', 'Заголовок', 'Sentiment', 'Event_Type']
                     st.dataframe(
                         st.session_state.processed_df[preview_cols],
@@ -1067,15 +1089,15 @@ def main():
                 )
                 
                 st.download_button(
-                    label="📥 Download Full Report",
+                    label="📥 Полный отчет - загрузить",
                     data=output,
-                    file_name="analysis_report.xlsx",
+                    file_name="результаты_анализа.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key='download_button'
                 )
                 
         except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
+            st.error(f"Ошибочка в обработке файла: {str(e)}")
             st.session_state.processed_df = None
 
 
