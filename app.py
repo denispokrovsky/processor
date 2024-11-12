@@ -996,13 +996,13 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                     try:
                         # Initialize Groq LLM if not already done
                         if 'groq_llm' not in locals():
-                        groq_llm = ensure_groq_llm()
+                            groq_llm = ensure_groq_llm()
             
-                        impact, reasoning = estimate_impact(
-                        groq_llm if groq_llm is not None else llm,
-                        translated_text,
-                        row['Объект']
-                        )
+                            impact, reasoning = estimate_impact(
+                            groq_llm if groq_llm is not None else llm,
+                            translated_text,
+                            row['Объект']
+                            )
 
                     except Exception as e:
                         impact = "Неопределенный эффект"
