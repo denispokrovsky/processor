@@ -1454,6 +1454,7 @@ def main():
         <div class="signature">denis.pokrovsky.npff</div>
         """,
         unsafe_allow_html=True
+        )
 
     # Main content area
     st.title("Анализ мониторинга новостей")
