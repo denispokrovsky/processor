@@ -73,7 +73,7 @@ class FallbackLLMSystem:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             self.model = self.model.to(self.device)
             
-            st.success(f"Successfully initialized MT5 model on {self.device}")
+            st.success(f"Запустил MT5-модель на {self.device}")
             
         except Exception as e:
             st.error(f"Error initializing MT5: {str(e)}")
@@ -230,10 +230,10 @@ class QwenSystem:
             )
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             
-            st.success(f"Successfully initialized Qwen2.5 model")
+            st.success(f"запустил Qwen2.5 model")
             
         except Exception as e:
-            st.error(f"Error initializing Qwen2.5: {str(e)}")
+            st.error(f"ошибка запуска Qwen2.5: {str(e)}")
             raise
 
     def invoke(self, messages):
@@ -347,9 +347,9 @@ class EventDetectionSystem:
                 model="yiyanghkust/finbert-tone",
                 return_all_scores=True
             )
-            st.success("BERT models initialized for event detection")
+            st.success("BERT-модели запущены для детекции новостей")
         except Exception as e:
-            st.error(f"Error initializing BERT models: {str(e)}")
+            st.error(f"Ошибка запуска BERT: {str(e)}")
             raise
 
     def detect_event_type(self, text, entity):
@@ -404,70 +404,106 @@ class EventDetectionSystem:
 
 class TranslationSystem:
     def __init__(self):
-        """Initialize translation system using Helsinki NLP model"""
+        """Initialize translation system using Helsinki NLP model with fallback options"""
         try:
             self.translator = pipeline("translation", model="Helsinki-NLP/opus-mt-ru-en")
-            st.success("Translation system initialized")
+            # Initialize fallback translator
+            self.fallback_translator = GoogleTranslator(source='ru', target='en')
+            self.legacy_translator = LegacyTranslator()
+            st.success("Запустил систему перевода")
         except Exception as e:
-            st.error(f"Error initializing translator: {str(e)}")
+            st.error(f"Ошибка запуска перевода: {str(e)}")
             raise
-    
-    def translate_text(self, text):
-        if pd.isna(text) or not isinstance(text, str) or not text.strip():
+
+    def _split_into_chunks(self, text: str, max_length: int = 450) -> list:
+        """Split text into chunks while preserving word boundaries"""
+        words = text.split()
+        chunks = []
+        current_chunk = []
+        current_length = 0
+
+        for word in words:
+            word_length = len(word)
+            if current_length + word_length + 1 <= max_length:
+                current_chunk.append(word)
+                current_length += word_length + 1
+            else:
+                if current_chunk:
+                    chunks.append(' '.join(current_chunk))
+                current_chunk = [word]
+                current_length = word_length
+
+        if current_chunk:
+            chunks.append(' '.join(current_chunk))
+
+        return chunks
+
+    def _translate_chunk_with_retries(self, chunk: str, max_retries: int = 3) -> str:
+        """Attempt translation with multiple fallback options"""
+        if not chunk or not chunk.strip():
+            return ""
+
+        for attempt in range(max_retries):
+            try:
+                # First try Helsinki NLP
+                result = self.translator(chunk, max_length=512)
+                if result and isinstance(result, list) and len(result) > 0:
+                    translated = result[0].get('translation_text')
+                    if translated and isinstance(translated, str):
+                        return translated
+
+                # First fallback: Google Translator
+                translated = self.fallback_translator.translate(chunk)
+                if translated and isinstance(translated, str):
+                    return translated
+
+                # Second fallback: Legacy Google Translator
+                translated = self.legacy_translator.translate(chunk, src='ru', dest='en').text
+                if translated and isinstance(translated, str):
+                    return translated
+
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    st.warning(f"Попробовал перевести {max_retries} раз, не преуспел: {str(e)}")
+                time.sleep(1 * (attempt + 1))  # Exponential backoff
+
+        return chunk  # Return original text if all translation attempts fail
+
+    def translate_text(self, text: str) -> str:
+        """Translate text with robust error handling and validation"""
+        # Input validation
+        if pd.isna(text) or not isinstance(text, str):
             return str(text) if pd.notna(text) else ""
-            
+
         text = str(text).strip()
         if not text:
             return ""
-            
+
         try:
-            max_chunk_size = 450
-            chunks = self._split_into_chunks(text, max_chunk_size)
+            # Split into manageable chunks
+            chunks = self._split_into_chunks(text)
             translated_chunks = []
-            
+
+            # Process each chunk with validation
             for chunk in chunks:
                 if not chunk.strip():
                     continue
-                    
-                try:
-                    result = self.translator(chunk, max_length=512)
-                    if result and isinstance(result, list) and len(result) > 0:
-                        translated_chunks.append(result[0].get('translation_text', chunk))
-                    else:
-                        translated_chunks.append(chunk)
-                except Exception as e:
-                    st.warning(f"Chunk translation error: {str(e)}")
-                    translated_chunks.append(chunk)
-                time.sleep(0.1)
-                
-            return ' '.join(translated_chunks)
-            
+
+                translated_chunk = self._translate_chunk_with_retries(chunk)
+                if translated_chunk:  # Only add non-empty translations
+                    translated_chunks.append(translated_chunk)
+                time.sleep(0.1)  # Rate limiting
+
+            # Final validation of results
+            if not translated_chunks:
+                return text  # Return original if no translations succeeded
+
+            result = ' '.join(translated_chunks)
+            return result if result.strip() else text
+
         except Exception as e:
             st.warning(f"Translation error: {str(e)}")
-            return text
-        
-    def _split_into_chunks(self, text, max_length):
-        sentences = []
-        for s in text.replace('!', '.').replace('?', '.').split('.'):
-            s = s.strip()
-            if s:
-                if len(s) > max_length:
-                    # Split long sentences into smaller chunks
-                    words = s.split()
-                    current_chunk = []
-                    current_length = 0
-                    for word in words:
-                        if current_length + len(word) > max_length:
-                            sentences.append(' '.join(current_chunk))
-                            current_chunk = [word]
-                            current_length = len(word)
-                        else:
-                            current_chunk.append(word)
-                            current_length += len(word) + 1
-                    if current_chunk:
-                        sentences.append(' '.join(current_chunk))
-                else:
-                    sentences.append(s)
+            return text  # Return original text on error
 
 
 
@@ -962,7 +998,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.56):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.57):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
