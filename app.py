@@ -30,6 +30,9 @@ from threading import Event
 import threading
 from queue import Queue
 
+from deep-translator import GoogleTranslator
+
+
 class ProcessControl:
     def __init__(self):
         self.pause_event = Event()
@@ -998,7 +1001,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.57):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.58):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
