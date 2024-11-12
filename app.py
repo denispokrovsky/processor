@@ -717,7 +717,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 
                 # Event detection using BERT
                 event_type, event_summary = event_detector.detect_event_type(
-                    translated_text,
+                    row['Выдержки из текста'],
                     row['Объект']
                 )
                 df.at[idx, 'Event_Type'] = event_type
@@ -1164,7 +1164,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.63):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.64):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
