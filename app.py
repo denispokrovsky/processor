@@ -715,8 +715,8 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 sentiment = analyze_sentiment(translated_text)
                 df.at[idx, 'Sentiment'] = sentiment
                 
-                # Event detection using BERT
-                event_type, event_summary = detect_events(
+                # Event detection using BERT/ MT-5
+                event_type, event_summary = FallbackLLMSystem().detect_events(
                     row['Выдержки из текста'],
                     row['Объект']
                 )
@@ -1164,7 +1164,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.65):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.66):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
