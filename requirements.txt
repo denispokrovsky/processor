@@ -22,3 +22,5 @@ optimum
 sentencepiece
 deep_translator
 googletrans
+plotly
+datetime
