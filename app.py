@@ -77,7 +77,7 @@ class FallbackLLMSystem:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             self.model = self.model.to(self.device)
             
-            st.success(f"Пока все в порядке: запущена MT5 model on {self.device}")
+            st.success(f"пока все в порядке: запущена MT5 model на = {self.device} =")
             
         except Exception as e:
             st.error(f"Ошибка запуска модели MT5: {str(e)}")
@@ -461,7 +461,7 @@ class ProcessingUI:
         with st.session_state.negative_container:
             st.markdown(f"""
             <div style='background-color: #ffebee; padding: 10px; border-radius: 5px; margin: 5px 0;'>
-                <strong style='color: #d32f2f;'>⚠️ Negative Alert:</strong><br>
+                <strong style='color: #d32f2f;'>⚠️ Внимание: негатив!:</strong><br>
                 <strong>Entity:</strong> {entity}<br>
                 <strong>News:</strong> {headline}<br>
                 <strong>Analysis:</strong> {analysis}<br>
@@ -473,7 +473,7 @@ class ProcessingUI:
         with st.session_state.events_container:
             st.markdown(f"""
             <div style='background-color: #e3f2fd; padding: 10px; border-radius: 5px; margin: 5px 0;'>
-                <strong style='color: #1976d2;'>🔔 Event Detected:</strong><br>
+                <strong style='color: #1976d2;'>🔔 Возможно, речь о важном факте:</strong><br>
                 <strong>Entity:</strong> {entity}<br>
                 <strong>Type:</strong> {event_type}<br>
                 <strong>News:</strong> {headline}
@@ -1164,7 +1164,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.62):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.63):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
@@ -1202,7 +1202,7 @@ def main():
     
     with col1:
         # Area for real-time updates
-        st.subheader("Что найдено, сообщаю:")
+        st.subheader("Что найдено, показываю:")
         st.markdown("""
             <style>
             .stProgress .st-bo {
