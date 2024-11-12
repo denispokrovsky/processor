@@ -71,7 +71,7 @@ class FallbackLLMSystem:
             # Initialize MT5 model (multilingual T5)
             self.model_name = "google/mt5-small"
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModelForSeq2SeqM.from_pretrained(self.model_name)
+            self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
             
             # Set device
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
