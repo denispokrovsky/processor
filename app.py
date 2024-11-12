@@ -478,7 +478,8 @@ class ProcessingUI:
             unsafe_allow_html=True
         )
         self.progress_bar = st.progress(0)
-        
+        self.status = st.empty()
+
         # Create tabs for different views
         tab1, tab2, tab3, tab4 = st.tabs([
             "📊 Основные метрики", 
@@ -684,7 +685,7 @@ class ProcessingUI:
         stats = st.session_state.processing_stats
         
         # Processing speed chart
-        speeds = stats['processing_speed'][-50:]  # Last 50 measurements
+        speeds = stats['processing_speed'][-1:]  # Last 1 measurement
         fig_speed = go.Figure(data=go.Scatter(y=speeds, mode='lines'))
         fig_speed.update_layout(title='Processing Speed Over Time')
         self.speed_chart.plotly_chart(fig_speed, use_container_width=True)
@@ -695,6 +696,7 @@ class ProcessingUI:
         """Update progress bar and elapsed time"""
         progress = current / total
         self.progress_bar.progress(progress)
+        self.status.text(f"Обрабатываем {current} из {total} сообщений...")
         
         # Update elapsed time
         elapsed = time.time() - st.session_state.processing_stats['start_time']
@@ -969,14 +971,15 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 
 
                 # Show events in real-time
-                if event_type != "Нет":
-                    ui.show_event(
-                        row['Объект'],
-                        event_type,
-                        row['Заголовок']
-                    )
+                #if event_type != "Нет":
+                #    ui.show_event(
+                #        row['Объект'],
+                #        event_type,
+                #        row['Заголовок']
+                #    )
                 
                 #Calculate processing speed (items per second)
+                current_time = time.time()
                 time_delta = current_time - last_update_time
                 if time_delta > 0:
                     processing_speed = 1 / time_delta  # items per second
@@ -988,29 +991,34 @@ def process_file(uploaded_file, model_choice, translation_method=None):
 
                 
                 # Handle negative sentiment
+                
                 if sentiment == "Negative":
                     try:
+                        # Initialize Groq LLM if not already done
+                        if 'groq_llm' not in locals():
+                        groq_llm = ensure_groq_llm()
+            
                         impact, reasoning = estimate_impact(
-                            groq_llm if groq_llm is not None else llm,
-                            translated_text,
-                            row['Объект']
+                        groq_llm if groq_llm is not None else llm,
+                        translated_text,
+                        row['Объект']
                         )
+
                     except Exception as e:
                         impact = "Неопределенный эффект"
                         reasoning = "Error in impact estimation"
-                        if 'rate limit' in str(e).lower():
-                            st.warning("Лимит запросов исчерпался. Иду на fallback.")
+                        st.warning(f"Impact estimation error: {str(e)}")
                     
                     df.at[idx, 'Impact'] = impact
                     df.at[idx, 'Reasoning'] = reasoning
                     
                     # Show negative alert in real-time
-                    ui.show_negative(
-                        row['Объект'],
-                        row['Заголовок'],
-                        reasoning,
-                        impact
-                    )
+                    #ui.show_negative(
+                    #    row['Объект'],
+                    #    row['Заголовок'],
+                    #    reasoning,
+                    #    impact
+                    #)
                 
                 processed_rows_df = pd.concat([processed_rows_df, df.iloc[[idx]]], ignore_index=True)
 
@@ -1186,41 +1194,85 @@ def init_langchain_llm(model_choice):
 
 
 def estimate_impact(llm, news_text, entity):
-    template = """
-    Analyze the following news piece about the entity "{entity}" and estimate its monetary impact in Russian rubles for this entity in the next 6 months.
-    
-    If precise monetary estimate is not possible, categorize the impact as one of the following:
-    1. "Значительный риск убытков" 
-    2. "Умеренный риск убытков"
-    3. "Незначительный риск убытков"
-    4. "Вероятность прибыли"
-    5. "Неопределенный эффект"
-
-    Provide brief reasoning (maximum 100 words).
-
-    News: {news}
-
-    Your response should be in the following format:
-    Impact: [Your estimate or category]
-    Reasoning: [Your reasoning]
     """
-    prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
-    chain = prompt | llm
-    response = chain.invoke({"entity": entity, "news": news_text})
-    
+    Estimate impact using Groq LLM regardless of the main model choice.
+    Falls back to the provided LLM if Groq initialization fails.
+    """
+    # Initialize default return values
     impact = "Неопределенный эффект"
     reasoning = "Не удалось получить обоснование"
     
-    # Extract content from response
-    response_text = response.content if hasattr(response, 'content') else str(response)
-    
     try:
+        # Always try to use Groq first
+        groq_llm = ensure_groq_llm()
+        working_llm = groq_llm if groq_llm is not None else llm
+        
+        template = """
+        You are a financial analyst. Analyze this news piece about {entity} and assess its potential impact.
+        
+        News: {news}
+        
+        Classify the impact into one of these categories:
+        1. "Значительный риск убытков" (Significant loss risk)
+        2. "Умеренный риск убытков" (Moderate loss risk)
+        3. "Незначительный риск убытков" (Minor loss risk)
+        4. "Вероятность прибыли" (Potential profit)
+        5. "Неопределенный эффект" (Uncertain effect)
+        
+        Provide a brief, fact-based reasoning for your assessment.
+        
+        Format your response exactly as:
+        Impact: [category]
+        Reasoning: [explanation in 2-3 sentences]
+        """
+        
+        prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
+        chain = prompt | working_llm
+        
+        # Handle both dictionary and direct string inputs
+        if isinstance(news_text, dict):
+            response = chain.invoke(news_text)
+        else:
+            response = chain.invoke({"entity": entity, "news": news_text})
+        
+        # Extract content from response
+        response_text = response.content if hasattr(response, 'content') else str(response)
+        
         if "Impact:" in response_text and "Reasoning:" in response_text:
-            impact_part, reasoning_part = response_text.split("Reasoning:")
-            impact = impact_part.split("Impact:")[1].strip()
-            reasoning = reasoning_part.strip()
+            try:
+                impact_part, reasoning_part = response_text.split("Reasoning:")
+                impact_temp = impact_part.split("Impact:")[1].strip()
+                
+                # Validate impact category
+                valid_impacts = [
+                    "Значительный риск убытков",
+                    "Умеренный риск убытков",
+                    "Незначительный риск убытков",
+                    "Вероятность прибыли",
+                    "Неопределенный эффект"
+                ]
+                
+                # Use fuzzy matching to handle slight variations
+                best_match = None
+                best_score = 0
+                impact_temp_lower = impact_temp.lower()
+                
+                for valid_impact in valid_impacts:
+                    score = fuzz.ratio(impact_temp_lower, valid_impact.lower())
+                    if score > best_score and score > 80:  # 80% similarity threshold
+                        best_score = score
+                        best_match = valid_impact
+                
+                impact = best_match if best_match else "Неопределенный эффект"
+                reasoning = reasoning_part.strip()
+                
+            except Exception as e:
+                st.warning(f"Error parsing impact response: {str(e)}")
+                
     except Exception as e:
-        st.error(f"Error parsing LLM response: {str(e)}")
+        st.warning(f"Error in impact estimation: {str(e)}")
+        if 'rate limit' in str(e).lower():
+            st.warning("Rate limit reached. Using fallback model.")
     
     return impact, reasoning
 
@@ -1412,7 +1464,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.69!):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.70):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
