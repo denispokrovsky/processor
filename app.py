@@ -18,8 +18,6 @@ from jinja2 import Template
 import time
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import Optional
-from deep_translator import GoogleTranslator
-from googletrans import Translator as LegacyTranslator
 import torch
 
 from transformers import (
