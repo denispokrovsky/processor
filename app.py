@@ -769,13 +769,14 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         # Handle stopped processing
         if st.session_state.control.is_stopped() and len(df) > 0:
             st.warning("Обработку остановили. Показываю частичные результаты.")
-            if st.button("Скачать частичный результат"):
-                output = create_output_file(df, uploaded_file, llm)
+            output = create_output_file(df, uploaded_file, llm)
+            if output is not None:
                 st.download_button(
                     label="📊 Скачать частичный результат",
                     data=output,
                     file_name="partial_analysis.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="partial_download" 
                 )
         
         return df
