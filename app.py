@@ -30,7 +30,8 @@ from threading import Event
 import threading
 from queue import Queue
 
-from deep-translator import GoogleTranslator
+from deep_translator import GoogleTranslator
+from googletrans import Translator as LegacyTranslator
 
 
 class ProcessControl:
@@ -1001,7 +1002,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.58):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.59*):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
