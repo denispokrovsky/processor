@@ -660,7 +660,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         # Initialize UI and control systems
         ui = ProcessingUI()
         translator = TranslationSystem()
-        #event_detector = EventDetectionSystem()
+        event_detector = EventDetectionSystem()
         
         # Load and prepare data
         df = pd.read_excel(uploaded_file, sheet_name='Публикации')
@@ -716,7 +716,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 df.at[idx, 'Sentiment'] = sentiment
                 
                 # Event detection using BERT/ MT-5
-                event_type, event_summary = FallbackLLMSystem().detect_events(
+                event_type, event_summary = event_detector.detect_event_type(
                     row['Выдержки из текста'],
                     row['Объект']
                 )
@@ -1164,7 +1164,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.66):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.67):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
