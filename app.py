@@ -32,6 +32,9 @@ from queue import Queue
 
 from deep_translator import GoogleTranslator
 from googletrans import Translator as LegacyTranslator
+import plotly.graph_objects as go
+from datetime import datetime
+import plotly.express as px
 
 
 class ProcessControl:
@@ -431,54 +434,272 @@ class ProcessingUI:
     def __init__(self):
         if 'control' not in st.session_state:
             st.session_state.control = ProcessControl()
-        if 'negative_container' not in st.session_state:
-            st.session_state.negative_container = st.empty()
-        if 'events_container' not in st.session_state:
-            st.session_state.events_container = st.empty()
             
-        # Create control buttons
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("⏸️ Пауза/Возобновить" if not st.session_state.control.is_paused() else "▶️ Возобновить", key="pause_button"):
-                if st.session_state.control.is_paused():
-                    st.session_state.control.resume()
-                else:
-                    st.session_state.control.pause()
-                    
-        with col2:
-            if st.button("⏹️ Стоп и всё", key="stop_button"):
-                st.session_state.control.stop()
-                
+        # Initialize processing stats in session state if not exists
+        if 'processing_stats' not in st.session_state:
+            st.session_state.processing_stats = {
+                'start_time': time.time(),
+                'entities': {},
+                'events_timeline': [],
+                'negative_alerts': [],
+                'processing_speed': []
+            }
+        
+        # Create main layout
+        self.setup_layout()
+        
+    def setup_layout(self):
+        """Setup the main UI layout with tabs and sections"""
+        # Control Panel
+        with st.container():
+            col1, col2, col3 = st.columns([2,2,1])
+            with col1:
+                if st.button(
+                    "⏸️ Пауза" if not st.session_state.control.is_paused() else "▶️ Продолжить",
+                    use_container_width=True
+                ):
+                    if st.session_state.control.is_paused():
+                        st.session_state.control.resume()
+                    else:
+                        st.session_state.control.pause()
+            with col2:
+                if st.button("⏹️ Остановить", use_container_width=True):
+                    st.session_state.control.stop()
+            with col3:
+                self.timer_display = st.empty()
+        
+        # Progress Bar with custom styling
+        st.markdown("""
+            <style>
+            .stProgress > div > div > div > div {
+                background-image: linear-gradient(to right, #FF6B6B, #4ECDC4);
+            }
+            </style>""", 
+            unsafe_allow_html=True
+        )
         self.progress_bar = st.progress(0)
-        self.status = st.empty()
+        
+        # Create tabs for different views
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📊 Основные метрики", 
+            "🏢 По организациям", 
+            "⚠️ Важные события", 
+            "📈 Аналитика"
+        ])
+        
+        with tab1:
+            self.setup_main_metrics_tab()
+            
+        with tab2:
+            self.setup_entity_tab()
+            
+        with tab3:
+            self.setup_events_tab()
+            
+        with tab4:
+            self.setup_analytics_tab()
+            
+    def setup_main_metrics_tab(self):
+        """Setup the main metrics display"""
+        # Create metrics containers
+        metrics_cols = st.columns(4)
+        self.total_processed = metrics_cols[0].empty()
+        self.negative_count = metrics_cols[1].empty()
+        self.events_count = metrics_cols[2].empty()
+        self.speed_metric = metrics_cols[3].empty()
+        
+        # Recent items container with custom styling
+        st.markdown("""
+            <style>
+            .recent-item {
+                padding: 10px;
+                margin: 5px 0;
+                border-radius: 5px;
+                background-color: #f0f2f6;
+            }
+            .negative-item {
+                border-left: 4px solid #FF6B6B;
+            }
+            .positive-item {
+                border-left: 4px solid #4ECDC4;
+            }
+            .event-item {
+                border-left: 4px solid #FFE66D;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+        
+        self.recent_items_container = st.empty()
+        
+    def setup_entity_tab(self):
+        """Setup the entity-wise analysis display"""
+        # Entity filter
+        self.entity_filter = st.multiselect(
+            "Фильтр по организациям:",
+            options=[],  # Will be populated as entities are processed
+            default=None
+        )
+        
+        # Entity metrics
+        self.entity_cols = st.columns([2,1,1,1])
+        self.entity_chart = st.empty()
+        self.entity_table = st.empty()
+        
+    def setup_events_tab(self):
+        """Setup the events timeline display"""
+        # Event type filter
+        self.event_filter = st.multiselect(
+            "Тип события:",
+            options=["Отчетность", "РЦБ", "Суд"],
+            default=None
+        )
+        
+        # Timeline container
+        self.timeline_container = st.container()
+        
+    def setup_analytics_tab(self):
+        """Setup the analytics display"""
+        # Processing speed chart
+        self.speed_chart = st.empty()
+        
+        # Sentiment distribution pie chart
+        self.sentiment_chart = st.empty()
+        
+        # Entity correlation matrix
+        self.correlation_chart = st.empty()
+        
+    def update_stats(self, row, sentiment, event_type, processing_speed):
+        """Update all statistics and displays"""
+        # Update session state stats
+        stats = st.session_state.processing_stats
+        entity = row['Объект']
+        
+        # Update entity stats
+        if entity not in stats['entities']:
+            stats['entities'][entity] = {
+                'total': 0,
+                'negative': 0,
+                'events': 0,
+                'timeline': []
+            }
+        
+        stats['entities'][entity]['total'] += 1
+        if sentiment == 'Negative':
+            stats['entities'][entity]['negative'] += 1
+        if event_type != 'Нет':
+            stats['entities'][entity]['events'] += 1
+            
+        # Update processing speed
+        stats['processing_speed'].append(processing_speed)
+        
+        # Update UI components
+        self._update_main_metrics(row, sentiment, event_type, processing_speed)
+        self._update_entity_view()
+        self._update_events_view(row, event_type)
+        self._update_analytics()
+        
+    def _update_main_metrics(self, row, sentiment, event_type, speed):
+        """Update main metrics tab"""
+        total = sum(e['total'] for e in st.session_state.processing_stats['entities'].values())
+        total_negative = sum(e['negative'] for e in st.session_state.processing_stats['entities'].values())
+        total_events = sum(e['events'] for e in st.session_state.processing_stats['entities'].values())
+        
+        # Update metrics
+        self.total_processed.metric("Обработано", total)
+        self.negative_count.metric("Негативных", total_negative)
+        self.events_count.metric("Событий", total_events)
+        self.speed_metric.metric("Скорость", f"{speed:.1f} сообщ/сек")
+        
+        # Update recent items
+        self._update_recent_items(row, sentiment, event_type)
+        
+    def _update_recent_items(self, row, sentiment, event_type):
+        """Update recent items display with custom styling"""
+        items_html = "<div style='max-height: 300px; overflow-y: auto;'>"
+        
+        # Add new item to the beginning of the list
+        item_class = 'recent-item '
+        if sentiment == 'Negative':
+            item_class += 'negative-item'
+        elif sentiment == 'Positive':
+            item_class += 'positive-item'
+        if event_type != 'Нет':
+            item_class += ' event-item'
+            
+        items_html += f"""
+            <div class='{item_class}'>
+                <strong>{row['Объект']}</strong><br>
+                {row['Заголовок']}<br>
+                <small>
+                    Тональность: {sentiment} 
+                    {f" | Событие: {event_type}" if event_type != 'Нет' else ""}
+                </small>
+            </div>
+        """
+        
+        items_html += "</div>"
+        self.recent_items_container.markdown(items_html, unsafe_allow_html=True)
+        
+    def _update_entity_view(self):
+        """Update entity tab visualizations"""
+        stats = st.session_state.processing_stats['entities']
+        if not stats:
+            return
+            
+        # Update entity filter options
+        current_options = set(self.entity_filter)
+        all_entities = set(stats.keys())
+        if current_options != all_entities:
+            self.entity_filter = list(all_entities)
+            
+        # Create entity comparison chart using Plotly
+        df_entities = pd.DataFrame.from_dict(stats, orient='index')
+        fig = go.Figure(data=[
+            go.Bar(name='Total', x=df_entities.index, y=df_entities['total']),
+            go.Bar(name='Negative', x=df_entities.index, y=df_entities['negative']),
+            go.Bar(name='Events', x=df_entities.index, y=df_entities['events'])
+        ])
+        fig.update_layout(barmode='group', title='Entity Statistics')
+        self.entity_chart.plotly_chart(fig, use_container_width=True)
+        
+    def _update_events_view(self, row, event_type):
+        """Update events timeline"""
+        if event_type != 'Нет':
+            event_html = f"""
+                <div class='timeline-item'>
+                    <div class='timeline-marker'></div>
+                    <div class='timeline-content'>
+                        <h3>{event_type}</h3>
+                        <p><strong>{row['Объект']}</strong></p>
+                        <p>{row['Заголовок']}</p>
+                        <small>{datetime.now().strftime('%H:%M:%S')}</small>
+                    </div>
+                </div>
+            """
+            with self.timeline_container:
+                st.markdown(event_html, unsafe_allow_html=True)
+                
+    def _update_analytics(self):
+        """Update analytics tab visualizations"""
+        stats = st.session_state.processing_stats
+        
+        # Processing speed chart
+        speeds = stats['processing_speed'][-50:]  # Last 50 measurements
+        fig_speed = go.Figure(data=go.Scatter(y=speeds, mode='lines'))
+        fig_speed.update_layout(title='Processing Speed Over Time')
+        self.speed_chart.plotly_chart(fig_speed, use_container_width=True)
+        
+        # Add other analytics visualizations as needed
         
     def update_progress(self, current, total):
+        """Update progress bar and elapsed time"""
         progress = current / total
         self.progress_bar.progress(progress)
-        self.status.text(f"Обрабатываем {current} из {total} сообщений...")
         
-    def show_negative(self, entity, headline, analysis, impact=None):
-        with st.session_state.negative_container:
-            st.markdown(f"""
-            <div style='background-color: #ffebee; padding: 10px; border-radius: 5px; margin: 5px 0;'>
-                <strong style='color: #d32f2f;'>⚠️ Внимание: негатив!:</strong><br>
-                <strong>Entity:</strong> {entity}<br>
-                <strong>News:</strong> {headline}<br>
-                <strong>Analysis:</strong> {analysis}<br>
-                {f"<strong>Impact:</strong> {impact}<br>" if impact else ""}
-            </div>
-            """, unsafe_allow_html=True)
-            
-    def show_event(self, entity, event_type, headline):
-        with st.session_state.events_container:
-            st.markdown(f"""
-            <div style='background-color: #e3f2fd; padding: 10px; border-radius: 5px; margin: 5px 0;'>
-                <strong style='color: #1976d2;'>🔔 Возможно, речь о важном факте:</strong><br>
-                <strong>Entity:</strong> {entity}<br>
-                <strong>Type:</strong> {event_type}<br>
-                <strong>News:</strong> {headline}
-            </div>
-            """, unsafe_allow_html=True)
+        # Update elapsed time
+        elapsed = time.time() - st.session_state.processing_stats['start_time']
+        self.timer_display.markdown(f"⏱️ {format_elapsed_time(elapsed)}")
+
 
 class EventDetectionSystem:
     def __init__(self):
@@ -656,6 +877,8 @@ class TranslationSystem:
 
 def process_file(uploaded_file, model_choice, translation_method=None):
     df = None
+    processed_rows_df = pd.DataFrame()
+
     try:
         # Initialize UI and control systems
         ui = ProcessingUI()
@@ -699,11 +922,32 @@ def process_file(uploaded_file, model_choice, translation_method=None):
             # Check for stop/pause
             if st.session_state.control.is_stopped():
                 st.warning("Обработку остановили")
+                if not processed_rows_df.empty:  # Only offer download if we have processed rows
+                    output = create_output_file(processed_rows_df, uploaded_file, llm)
+                    if output is not None:
+                        st.download_button(
+                            label=f"📊 Скачать результат ({processed_rows} из {total_rows} строк)",
+                            data=output,
+                            file_name="partial_analysis.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="partial_download"
+                        )
                 break
                 
             st.session_state.control.wait_if_paused()
             if st.session_state.control.is_paused():
                 st.info("Обработка на паузе. Можно возобновить.")
+                if not processed_rows_df.empty:  # Only offer download if we have processed rows
+                    output = create_output_file(processed_rows_df, uploaded_file, llm)
+                    if output is not None:
+                        st.download_button(
+                            label=f"📊 Скачать результат ({processed_rows} из {total_rows} строк)",
+                            data=output,
+                            file_name="partial_analysis.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="partial_download"
+                        )
+                break                
                 continue
                 
             try:
@@ -723,6 +967,9 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 df.at[idx, 'Event_Type'] = event_type
                 df.at[idx, 'Event_Summary'] = event_summary
                 
+                # Update live statistics
+                ui.update_stats(row, sentiment, event_type)
+
                 # Show events in real-time
                 if event_type != "Нет":
                     ui.show_event(
@@ -756,6 +1003,8 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                         impact
                     )
                 
+                processed_rows_df = pd.concat([processed_rows_df, df.iloc[[idx]]], ignore_index=True)
+
                 # Update progress
                 processed_rows += 1
                 ui.update_progress(processed_rows, total_rows)
@@ -766,20 +1015,8 @@ def process_file(uploaded_file, model_choice, translation_method=None):
             
             time.sleep(0.1)
         
-        # Handle stopped processing
-        if st.session_state.control.is_stopped() and len(df) > 0:
-            st.warning("Обработку остановили. Показываю частичные результаты.")
-            output = create_output_file(df, uploaded_file, llm)
-            if output is not None:
-                st.download_button(
-                    label="📊 Скачать частичный результат",
-                    data=output,
-                    file_name="partial_analysis.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="partial_download" 
-                )
-        
-        return df
+                
+        return processed_rows_df if st.session_state.control.is_stopped() else df
         
     except Exception as e:
         st.error(f"Ошибка в обработке файла: {str(e)}")
@@ -1165,7 +1402,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.67):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.68!):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
