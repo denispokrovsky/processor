@@ -21,3 +21,4 @@ langchain_openai
 optimum
 sentencepiece
 deep_translator
+googletrans
