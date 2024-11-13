@@ -636,26 +636,29 @@ class ProcessingUI:
             st.session_state.recent_items.insert(0, new_item)
             st.session_state.recent_items = st.session_state.recent_items[:10]  # Keep last 10 items
 
-        # Clear and redisplay items
-        self.recent_items_container.empty()
+        # Prepare markdown for all items
+        all_items_markdown = ""
         
-        # Display items using Streamlit components
         for item in st.session_state.recent_items:
             if item['sentiment'] in ['Positive', 'Negative']:
-                # Create the display style based on sentiment
                 sentiment_color = "🔴" if item['sentiment'] == 'Negative' else "🟢"
                 event_icon = "📅" if item['event_type'] != 'Нет' else ""
                 
-                self.recent_items_container.markdown(
-                    f"""
-                    {sentiment_color} **{item['entity']}**  {event_icon}
-                    
-                    {item['headline']}
-                    
-                    *{item['sentiment']}* {f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""} | {item['time']}
-                    
-                    ---
-                    """)
+                event_text = f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""
+                
+                all_items_markdown += f"""
+                {sentiment_color} **{item['entity']}**  {event_icon}
+
+                {item['headline']}
+
+                *{item['sentiment']}*{event_text} | {item['time']}
+
+                ---
+                """
+        
+        # Update container with all items at once
+        if all_items_markdown:
+            self.recent_items_container.markdown(all_items_markdown)
 
     def setup_main_metrics_tab(self):
         """Setup the main metrics display with updated styling"""
@@ -667,10 +670,10 @@ class ProcessingUI:
         self.speed_metric = metrics_cols[3].empty()
         
         # Create container for recent items
-        st.markdown("### Негативные/позитивные:")
+        st.markdown("### негативные/позитивные")
         self.recent_items_container = st.empty()
 
-        
+
     def _update_entity_view(self):
         """Update entity tab visualizations"""
         stats = st.session_state.processing_stats['entities']
@@ -1566,7 +1569,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.3):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.4):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
