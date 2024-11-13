@@ -662,38 +662,45 @@ class ProcessingUI:
         st.session_state.recent_items.insert(0, new_item)
         st.session_state.recent_items = st.session_state.recent_items[:10]  # Keep last 10 items
         
-        # Instead of using HTML, use Streamlit's native markdown with custom formatting
-        with self.recent_items_container:
-            # Clear previous content
-            st.empty()
-            
-            # Display each item using Streamlit's native components
-            for item in st.session_state.recent_items:
-                if item['sentiment'] in ['Positive', 'Negative']:
-                    # Create color and style based on sentiment
-                    color = "#FF6B6B" if item['sentiment'] == 'Negative' else "#4ECDC4"
-                    
-                    # Use markdown with custom styling
-                    st.markdown(
-                        f"""
-                        <div style='
-                            padding: 10px;
-                            margin-bottom: 10px;
-                            border-radius: 4px;
-                            background-color: #f8f9fa;
-                            border-left: 4px solid {color};
-                        '>
-                            <div style='font-weight: bold;'>{item['entity']}</div>
-                            <div style='margin: 5px 0;'>{item['headline']}</div>
-                            <div style='font-size: 0.9em; color: #666;'>
-                                Тональность: {item['sentiment']}
-                                {f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""}
-                                | {item['time']}
-                            </div>
+        # Create combined markdown for all items
+        all_items_markdown = ""
+        for item in st.session_state.recent_items:
+            if item['sentiment'] in ['Positive', 'Negative']:
+                # Create color based on sentiment
+                color = "#FF6B6B" if item['sentiment'] == 'Negative' else "#4ECDC4"
+                
+                # Add item markdown
+                all_items_markdown += f"""
+                    <div style='
+                        padding: 10px;
+                        margin-bottom: 10px;
+                        border-radius: 4px;
+                        background-color: #f8f9fa;
+                        border-left: 4px solid {color};
+                    '>
+                        <div style='font-weight: bold;'>{item['entity']}</div>
+                        <div style='margin: 5px 0;'>{item['headline']}</div>
+                        <div style='font-size: 0.9em; color: #666;'>
+                            Тональность: {item['sentiment']}
+                            {f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""}
+                            | {item['time']}
                         </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                    </div>
+                """
+        
+        # Add wrapper for scrolling
+        final_markdown = f"""
+            <div style='
+                max-height: 400px;
+                overflow-y: auto;
+                padding-right: 10px;
+            '>
+                {all_items_markdown}
+            </div>
+        """
+        
+        # Update the container with all items at once
+        self.recent_items_container.markdown(final_markdown, unsafe_allow_html=True)
         
     def _update_entity_view(self):
         """Update entity tab visualizations"""
@@ -1590,7 +1597,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.0):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.1):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
