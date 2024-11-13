@@ -559,27 +559,29 @@ class ProcessingUI:
             key="event_filter_key"
         )
         
-        # Timeline container
-        if 'timeline_container' not in st.session_state:
-            st.session_state.timeline_container = st.container()
+        self.timeline_container = st.container()
     
     def _update_events_view(self, row, event_type):
         """Update events timeline"""
         if event_type != 'Нет':
             event_html = f"""
-                <div class='timeline-item'>
-                    <div class='timeline-marker'></div>
-                    <div class='timeline-content'>
-                        <h3>{event_type}</h3>
-                        <p><strong>{row['Объект']}</strong></p>
-                        <p>{row['Заголовок']}</p>
-                        <p>{row['Выдержки из текста']}</p>
-                        <small>{datetime.now().strftime('%H:%M:%S')}</small>
-                    </div>
+                <div class='timeline-item' style='
+                    border-left: 4px solid #2196F3;
+                    margin: 10px 0;
+                    padding: 10px;
+                    background: #f5f5f5;
+                    border-radius: 4px;
+                '>
+                    <h4 style='color: #2196F3; margin: 0;'>{event_type}</h4>
+                    <p><strong>{row['Объект']}</strong></p>
+                    <p>{row['Заголовок']}</p>
+                    <p style='font-size: 0.9em;'>{row['Выдержки из текста']}</p>
+                    <small style='color: #666;'>{datetime.now().strftime('%H:%M:%S')}</small>
                 </div>
             """
             with self.timeline_container:
-                st.markdown(event_html, unsafe_allow_html=True)        
+                st.markdown(event_html, unsafe_allow_html=True)
+
     def setup_analytics_tab(self):
         """Setup the analytics display"""
         # Create containers for analytics
@@ -1296,86 +1298,87 @@ def init_langchain_llm(model_choice):
 
 def estimate_impact(llm, news_text, entity):
     """
-    Estimate impact using Groq LLM regardless of the main model choice.
-    Falls back to the provided LLM if Groq initialization fails.
+    Estimate impact using Groq LLM with improved error handling and validation.
     """
-    # Initialize default return values
-    impact = "Неопределенный эффект"
-    reasoning = "Не удалось получить обоснование"
-    
     try:
+        # Input validation
+        if not news_text or not entity:
+            return "Неопределенный эффект", "Недостаточно данных для анализа"
+            
+        # Clean up inputs
+        news_text = str(news_text).strip()
+        entity = str(entity).strip()
+        
         # Always try to use Groq first
-        groq_llm = ensure_groq_llm()
-        working_llm = groq_llm if groq_llm is not None else llm
+        working_llm = ensure_groq_llm() if 'groq_key' in st.secrets else llm
         
         template = """
-        You are a financial analyst. Analyze this news piece about {entity} and assess its potential impact.
+        You are a financial analyst tasked with assessing the impact of news on a company.
         
-        News: {news}
+        Company: {entity}
+        News Text: {news}
         
-        Classify the impact into one of these categories:
-        1. "Значительный риск убытков" (Significant loss risk)
-        2. "Умеренный риск убытков" (Moderate loss risk)
-        3. "Незначительный риск убытков" (Minor loss risk)
-        4. "Вероятность прибыли" (Potential profit)
-        5. "Неопределенный эффект" (Uncertain effect)
+        Based on the news content, strictly classify the potential impact into ONE of these categories:
+        1. "Значительный риск убытков" - For severe negative events like bankruptcy, major legal issues, significant market loss
+        2. "Умеренный риск убытков" - For moderate negative events like minor legal issues, temporary setbacks
+        3. "Незначительный риск убытков" - For minor negative events with limited impact
+        4. "Вероятность прибыли" - For positive events that could lead to profit or growth
+        5. "Неопределенный эффект" - Only if impact cannot be determined from the information
         
-        Provide a brief, fact-based reasoning for your assessment.
-        
-        Format your response exactly as:
-        Impact: [category]
-        Reasoning: [explanation in 2-3 sentences]
+        FORMAT YOUR RESPONSE EXACTLY AS:
+        Impact: [category name exactly as shown above]
+        Reasoning: [2-3 concise sentences explaining your choice]
         """
         
         prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
         chain = prompt | working_llm
         
-        # Handle both dictionary and direct string inputs
-        if isinstance(news_text, dict):
-            response = chain.invoke(news_text)
-        else:
-            response = chain.invoke({"entity": entity, "news": news_text})
+        # Make the API call
+        response = chain.invoke({
+            "entity": entity,
+            "news": news_text
+        })
         
-        # Extract content from response
+        # Parse response
         response_text = response.content if hasattr(response, 'content') else str(response)
         
+        # Extract impact and reasoning
+        impact = "Неопределенный эффект"  # Default
+        reasoning = "Не удалось определить влияние"  # Default
+        
         if "Impact:" in response_text and "Reasoning:" in response_text:
-            try:
-                impact_part, reasoning_part = response_text.split("Reasoning:")
-                impact_temp = impact_part.split("Impact:")[1].strip()
-                
-                # Validate impact category
-                valid_impacts = [
-                    "Значительный риск убытков",
-                    "Умеренный риск убытков",
-                    "Незначительный риск убытков",
-                    "Вероятность прибыли",
-                    "Неопределенный эффект"
-                ]
-                
-                # Use fuzzy matching to handle slight variations
-                best_match = None
-                best_score = 0
-                impact_temp_lower = impact_temp.lower()
-                
-                for valid_impact in valid_impacts:
-                    score = fuzz.ratio(impact_temp_lower, valid_impact.lower())
-                    if score > best_score and score > 80:  # 80% similarity threshold
-                        best_score = score
-                        best_match = valid_impact
-                
-                impact = best_match if best_match else "Неопределенный эффект"
-                reasoning = reasoning_part.strip()
-                
-            except Exception as e:
-                st.warning(f"Error parsing impact response: {str(e)}")
-                
+            parts = response_text.split("Reasoning:")
+            impact_part = parts[0].split("Impact:")[1].strip()
+            reasoning = parts[1].strip()
+            
+            # Validate impact category with fuzzy matching
+            valid_impacts = [
+                "Значительный риск убытков",
+                "Умеренный риск убытков",
+                "Незначительный риск убытков",
+                "Вероятность прибыли",
+                "Неопределенный эффект"
+            ]
+            
+            # Use fuzzy matching
+            best_match = None
+            best_score = 0
+            for valid_impact in valid_impacts:
+                score = fuzz.ratio(impact_part.lower(), valid_impact.lower())
+                if score > best_score and score > 80:  # 80% similarity threshold
+                    best_score = score
+                    best_match = valid_impact
+            
+            if best_match:
+                impact = best_match
+        
+        return impact, reasoning
+        
     except Exception as e:
-        st.warning(f"Error in impact estimation: {str(e)}")
+        st.warning(f"Impact estimation error: {str(e)}")
         if 'rate limit' in str(e).lower():
-            st.warning("Rate limit reached. Using fallback model.")
-    
-    return impact, reasoning
+            st.warning("Rate limit reached. Using fallback analysis.")
+        return "Неопределенный эффект", "Ошибка при анализе влияния"
 
 def format_elapsed_time(seconds):
     hours, remainder = divmod(int(seconds), 3600)
@@ -1565,7 +1568,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.72):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.73):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
