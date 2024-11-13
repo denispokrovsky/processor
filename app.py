@@ -881,7 +881,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
     df = None
     processed_rows_df = pd.DataFrame()
     last_update_time = time.time()
-    
+
     try:
         # Initialize UI and control systems
         ui = ProcessingUI()
@@ -994,33 +994,44 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 
                 # Handle negative sentiment
                 
+                # Handle negative sentiment
                 if sentiment == "Negative":
                     try:
-                        # Initialize Groq LLM if not already done
-                        if 'groq_llm' not in locals():
-                            groq_llm = ensure_groq_llm()
-            
+                        # Validate translated text
+                        if translated_text and len(translated_text.strip()) > 0:
+                            # Initialize Groq LLM if not already done
+                            if 'groq_llm' not in locals():
+                                groq_llm = ensure_groq_llm()
+                            
                             impact, reasoning = estimate_impact(
-                            groq_llm if groq_llm is not None else llm,
-                            translated_text,
-                            row['Объект']
+                                groq_llm if groq_llm is not None else llm,
+                                translated_text,
+                                row['Объект']
                             )
+                        else:
+                            # Use original text if translation failed
+                            original_text = row['Выдержки из текста']
+                            if original_text and len(original_text.strip()) > 0:
+                                impact, reasoning = estimate_impact(
+                                    groq_llm if groq_llm is not None else llm,
+                                    original_text,
+                                    row['Объект']
+                                )
+                            else:
+                                impact = "Неопределенный эффект"
+                                reasoning = "Текст новости отсутствует"
+                                st.warning(f"Empty news text for {row['Объект']}")
 
                     except Exception as e:
                         impact = "Неопределенный эффект"
                         reasoning = "Error in impact estimation"
                         st.warning(f"Impact estimation error: {str(e)}")
                     
+                    # Store results
                     df.at[idx, 'Impact'] = impact
                     df.at[idx, 'Reasoning'] = reasoning
-                    
-                    # Show negative alert in real-time
-                    #ui.show_negative(
-                    #    row['Объект'],
-                    #    row['Заголовок'],
-                    #    reasoning,
-                    #    impact
-                    #)
+
+
                 
                 processed_rows_df = pd.concat([processed_rows_df, df.iloc[[idx]]], ignore_index=True)
 
