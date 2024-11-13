@@ -627,29 +627,35 @@ class ProcessingUI:
             'time': datetime.now().strftime('%H:%M:%S')
         }
         
-        st.session_state.recent_items.insert(0, new_item)
-        st.session_state.recent_items = st.session_state.recent_items[:10]  # Keep last 10 items
+        # Update the list in session state
+        if not any(
+            item['entity'] == new_item['entity'] and 
+            item['headline'] == new_item['headline'] 
+            for item in st.session_state.recent_items
+        ):
+            st.session_state.recent_items.insert(0, new_item)
+            st.session_state.recent_items = st.session_state.recent_items[:10]  # Keep last 10 items
 
+        # Clear and redisplay items
+        self.recent_items_container.empty()
+        
         # Display items using Streamlit components
-        with self.recent_items_container:
-            for item in st.session_state.recent_items:
-                if item['sentiment'] in ['Positive', 'Negative']:
-                    # Use different background colors for different sentiments
-                    background_color = "#ffebee" if item['sentiment'] == 'Negative' else "#e8f5e9"
+        for item in st.session_state.recent_items:
+            if item['sentiment'] in ['Positive', 'Negative']:
+                # Create the display style based on sentiment
+                sentiment_color = "🔴" if item['sentiment'] == 'Negative' else "🟢"
+                event_icon = "📅" if item['event_type'] != 'Нет' else ""
+                
+                self.recent_items_container.markdown(
+                    f"""
+                    {sentiment_color} **{item['entity']}**  {event_icon}
                     
-                    # Create container for each item
-                    with st.container():
-                        st.markdown("""---""")  # Separator
-                        # Entity name in bold
-                        st.markdown(f"**{item['entity']}**")
-                        # Headline
-                        st.write(item['headline'])
-                        # Metadata row
-                        meta = f"_{item['sentiment']}"
-                        if item['event_type'] != 'Нет':
-                            meta += f" | Событие: {item['event_type']}"
-                        meta += f" | {item['time']}_"
-                        st.markdown(meta)
+                    {item['headline']}
+                    
+                    *{item['sentiment']}* {f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""} | {item['time']}
+                    
+                    ---
+                    """)
 
     def setup_main_metrics_tab(self):
         """Setup the main metrics display with updated styling"""
@@ -660,9 +666,10 @@ class ProcessingUI:
         self.events_count = metrics_cols[2].empty()
         self.speed_metric = metrics_cols[3].empty()
         
-        # Recent items container
-        st.markdown("### Последние новости:")
-        self.recent_items_container = st.container()
+        # Create container for recent items
+        st.markdown("### Негативные/позитивные:")
+        self.recent_items_container = st.empty()
+
         
     def _update_entity_view(self):
         """Update entity tab visualizations"""
@@ -1559,7 +1566,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.2):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.3):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
