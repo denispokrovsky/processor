@@ -880,7 +880,8 @@ class TranslationSystem:
 def process_file(uploaded_file, model_choice, translation_method=None):
     df = None
     processed_rows_df = pd.DataFrame()
-
+    last_update_time = time.time()
+    
     try:
         # Initialize UI and control systems
         ui = ProcessingUI()
@@ -980,6 +981,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 
                 #Calculate processing speed (items per second)
                 current_time = time.time()
+
                 time_delta = current_time - last_update_time
                 if time_delta > 0:
                     processing_speed = 1 / time_delta  # items per second
