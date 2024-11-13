@@ -997,19 +997,41 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         
         for idx, row in df.iterrows():
             # Check for stop/pause
+            # In process_file function, replace the stop handling section:
             if st.session_state.control.is_stopped():
                 st.warning("Обработку остановили")
                 if not processed_rows_df.empty:  # Only offer download if we have processed rows
-                    output = create_output_file(processed_rows_df, uploaded_file, llm)
-                    if output is not None:
-                        st.download_button(
-                            label=f"📊 Скачать результат ({processed_rows} из {total_rows} строк)",
-                            data=output,
-                            file_name="partial_analysis.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="partial_download"
-                        )
-                break
+                    try:
+                        # Ensure all required columns exist
+                        required_columns = ['Объект', 'Заголовок', 'Выдержки из текста', 'Sentiment', 'Event_Type', 'Event_Summary']
+                        for col in required_columns:
+                            if col not in processed_rows_df.columns:
+                                processed_rows_df[col] = ''
+                        
+                        # Ensure Impact and Reasoning columns exist
+                        if 'Impact' not in processed_rows_df.columns:
+                            processed_rows_df['Impact'] = 'Неопределенный эффект'
+                        if 'Reasoning' not in processed_rows_df.columns:
+                            processed_rows_df['Reasoning'] = 'Обработка была остановлена'
+                            
+                        # Create output file
+                        output = create_output_file(processed_rows_df, uploaded_file, llm)
+                        
+                        if output is not None:
+                            st.download_button(
+                                label=f"📊 Скачать результат ({len(processed_rows_df)} из {total_rows} строк)",
+                                data=output,
+                                file_name="partial_analysis.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="partial_download"
+                            )
+                        else:
+                            st.error("Не удалось создать файл с частичными результатами")
+                            
+                    except Exception as e:
+                        st.error(f"Ошибка при создании файла с частичными результатами: {str(e)}")
+                        
+                return processed_rows_df
                 
             st.session_state.control.wait_if_paused()
             if st.session_state.control.is_paused():
@@ -1569,7 +1591,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.4):::")
+        st.title("::: AI-анализ мониторинга новостей (v.)5:::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
