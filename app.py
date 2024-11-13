@@ -650,6 +650,7 @@ class ProcessingUI:
         if 'recent_items' not in st.session_state:
             st.session_state.recent_items = []
             
+        # Add new item to the list
         new_item = {
             'entity': row['Объект'],
             'headline': row['Заголовок'],
@@ -659,66 +660,40 @@ class ProcessingUI:
         }
         
         st.session_state.recent_items.insert(0, new_item)
-        st.session_state.recent_items = st.session_state.recent_items[:10]
+        st.session_state.recent_items = st.session_state.recent_items[:10]  # Keep last 10 items
         
-        # Custom CSS
-        st.markdown("""
-        <style>
-        .news-container {
-            max-height: 400px;
-            overflow-y: auto;
-            padding: 10px;
-        }
-        .news-item {
-            padding: 10px;
-            margin-bottom: 10px;
-            border-radius: 4px;
-            background-color: #f8f9fa;
-        }
-        .negative {
-            border-left: 4px solid #FF6B6B;
-        }
-        .positive {
-            border-left: 4px solid #4ECDC4;
-        }
-        .entity-name {
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-        .headline-text {
-            margin-bottom: 5px;
-        }
-        .meta-info {
-            font-size: 0.9em;
-            color: #666;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Build items display
-        items_display = "<div class='news-container'>"
-        
-        for item in st.session_state.recent_items:
-            if item['sentiment'] in ['Positive', 'Negative']:
-                sentiment_class = 'negative' if item['sentiment'] == 'Negative' else 'positive'
-                event_text = f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""
-                
-                item_html = f"""
-                <div class='news-item {sentiment_class}'>
-                    <div class='entity-name'>{item['entity']}</div>
-                    <div class='headline-text'>{item['headline']}</div>
-                    <div class='meta-info'>Тональность: {item['sentiment']}{event_text} | {item['time']}</div>
-                </div>
-                """
-                items_display += item_html
-        
-        items_display += "</div>"
-        
-        # Display the items
-        try:
-            self.recent_items_container.markdown(items_display, unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"Error displaying recent items: {str(e)}")
+        # Instead of using HTML, use Streamlit's native markdown with custom formatting
+        with self.recent_items_container:
+            # Clear previous content
+            st.empty()
+            
+            # Display each item using Streamlit's native components
+            for item in st.session_state.recent_items:
+                if item['sentiment'] in ['Positive', 'Negative']:
+                    # Create color and style based on sentiment
+                    color = "#FF6B6B" if item['sentiment'] == 'Negative' else "#4ECDC4"
+                    
+                    # Use markdown with custom styling
+                    st.markdown(
+                        f"""
+                        <div style='
+                            padding: 10px;
+                            margin-bottom: 10px;
+                            border-radius: 4px;
+                            background-color: #f8f9fa;
+                            border-left: 4px solid {color};
+                        '>
+                            <div style='font-weight: bold;'>{item['entity']}</div>
+                            <div style='margin: 5px 0;'>{item['headline']}</div>
+                            <div style='font-size: 0.9em; color: #666;'>
+                                Тональность: {item['sentiment']}
+                                {f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""}
+                                | {item['time']}
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
         
     def _update_entity_view(self):
         """Update entity tab visualizations"""
@@ -1615,7 +1590,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.75):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.0):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
