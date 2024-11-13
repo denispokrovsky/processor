@@ -665,25 +665,53 @@ class ProcessingUI:
         st.session_state.recent_items = st.session_state.recent_items[:10]
         
         # Create HTML for all recent items
-        items_html = "<div style='max-height: 400px; overflow-y: auto;'>"
+        items_html = f"""
+        <style>
+        .items-container {{
+            max-height: 400px;
+            overflow-y: auto;
+        }}
+        .news-item {{
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+        }}
+        .news-item.negative {{
+            border-left: 4px solid #FF6B6B;
+        }}
+        .news-item.positive {{
+            border-left: 4px solid #4ECDC4;
+        }}
+        .news-item .entity {{
+            font-weight: bold;
+            color: #333;
+        }}
+        .news-item .headline {{
+            margin: 5px 0;
+        }}
+        .news-item .meta {{
+            font-size: 0.9em;
+            color: #666;
+        }}
+        </style>
+        <div class="items-container">
+        """
         
         for item in st.session_state.recent_items:
             if item['sentiment'] in ['Positive', 'Negative']:  # Only show Positive and Negative items
-                item_class = 'recent-item '
-                if item['sentiment'] == 'Negative':
-                    item_class += 'negative-item'
-                elif item['sentiment'] == 'Positive':
-                    item_class += 'positive-item'
+                sentiment_class = 'negative' if item['sentiment'] == 'Negative' else 'positive'
+                event_info = f"Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""
                 
                 items_html += f"""
-                    <div class='{item_class}'>
-                        <strong>{item['entity']}</strong><br>
-                        {item['headline']}<br>
-                        <small>
+                    <div class="news-item {sentiment_class}">
+                        <div class="entity">{item['entity']}</div>
+                        <div class="headline">{item['headline']}</div>
+                        <div class="meta">
                             Тональность: {item['sentiment']}
-                            {f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""}
+                            {f" | {event_info}" if event_info else ""}
                             | {item['time']}
-                        </small>
+                        </div>
                     </div>
                 """
         
@@ -1467,93 +1495,110 @@ def create_output_file(df, uploaded_file, llm):
     try:
         wb = load_workbook("sample_file.xlsx")
         
-	    # Update 'Мониторинг' sheet with events
+        # Update 'Мониторинг' sheet with events
         ws = wb['Мониторинг']
         row_idx = 4
-        for _, row in df.iterrows():
-            if row['Event_Type'] != 'Нет':
-                ws.cell(row=row_idx, column=5, value=row['Объект'])  # Column E
-                ws.cell(row=row_idx, column=6, value=row['Заголовок'])  # Column F
-                ws.cell(row=row_idx, column=7, value=row['Event_Type'])  # Column G
-                ws.cell(row=row_idx, column=8, value=row['Event_Summary'])  # Column H
-                ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])  # Column I
-                row_idx += 1
-                   
-        # Sort entities by number of negative publications
-        entity_stats = pd.DataFrame({
-            'Объект': df['Объект'].unique(),
-            'Всего': df.groupby('Объект').size(),
-            'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int),
-            'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
-        }).sort_values('Негативные', ascending=False)
-        
-        # Calculate most negative impact for each entity
+        events_df = df[df['Event_Type'] != 'Нет'].copy()
+        for _, row in events_df.iterrows():
+            ws.cell(row=row_idx, column=5, value=row['Объект'])
+            ws.cell(row=row_idx, column=6, value=row['Заголовок'])
+            ws.cell(row=row_idx, column=7, value=row['Event_Type'])
+            ws.cell(row=row_idx, column=8, value=row['Event_Summary'])
+            ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])
+            row_idx += 1
+            
+        # Calculate statistics safely
+        try:
+            entity_stats = pd.DataFrame({
+                'Объект': df['Объект'].unique(),
+                'Всего': df.groupby('Объект').size(),
+                'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int),
+                'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
+            }).sort_values('Негативные', ascending=False)
+        except Exception as e:
+            st.warning(f"Error calculating entity stats: {str(e)}")
+            entity_stats = pd.DataFrame(columns=['Объект', 'Всего', 'Негативные', 'Позитивные'])
+            
+        # Calculate impacts safely
         entity_impacts = {}
         for entity in df['Объект'].unique():
-            entity_df = df[df['Объект'] == entity]
-            negative_impacts = entity_df[entity_df['Sentiment'] == 'Negative']['Impact']
-            entity_impacts[entity] = negative_impacts.iloc[0] if len(negative_impacts) > 0 else 'Неопределенный эффект'
+            try:
+                entity_df = df[df['Объект'] == entity]
+                negative_df = entity_df[entity_df['Sentiment'] == 'Negative']
+                if len(negative_df) > 0 and 'Impact' in negative_df.columns:
+                    impacts = negative_df['Impact'].dropna()
+                    entity_impacts[entity] = impacts.iloc[0] if len(impacts) > 0 else 'Неопределенный эффект'
+                else:
+                    entity_impacts[entity] = 'Неопределенный эффект'
+            except Exception as e:
+                st.warning(f"Error calculating impact for {entity}: {str(e)}")
+                entity_impacts[entity] = 'Неопределенный эффект'
         
         # Update 'Сводка' sheet
         ws = wb['Сводка']
         for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
-            ws.cell(row=idx, column=5, value=entity)  # Column E
-            ws.cell(row=idx, column=6, value=row['Всего'])  # Column F
-            ws.cell(row=idx, column=7, value=row['Негативные'])  # Column G
-            ws.cell(row=idx, column=8, value=row['Позитивные'])  # Column H
-            ws.cell(row=idx, column=9, value=entity_impacts[entity])  # Column I
+            ws.cell(row=idx, column=5, value=entity)
+            ws.cell(row=idx, column=6, value=row['Всего'])
+            ws.cell(row=idx, column=7, value=row['Негативные'])
+            ws.cell(row=idx, column=8, value=row['Позитивные'])
+            ws.cell(row=idx, column=9, value=entity_impacts.get(entity, 'Неопределенный эффект'))
         
-        # Update 'Значимые' sheet
+        # Update 'Значимые' sheet with both negative and positive
         ws = wb['Значимые']
         row_idx = 3
-        for _, row in df.iterrows():
-            if row['Sentiment'] in ['Negative', 'Positive']:
-                ws.cell(row=row_idx, column=3, value=row['Объект'])  # Column C
-                ws.cell(row=row_idx, column=4, value='релевантно')   # Column D
-                ws.cell(row=row_idx, column=5, value=row['Sentiment']) # Column E
-                ws.cell(row=row_idx, column=6, value=row['Impact'])   # Column F
-                ws.cell(row=row_idx, column=7, value=row['Заголовок']) # Column G
-                ws.cell(row=row_idx, column=8, value=row['Выдержки из текста']) # Column H
-                row_idx += 1
+        sentiment_df = df[df['Sentiment'].isin(['Negative', 'Positive'])].copy()
+        for _, row in sentiment_df.iterrows():
+            cols = ['Объект', 'Заголовок', 'Sentiment', 'Impact', 'Выдержки из текста']
+            for col in cols:
+                if col not in row:
+                    row[col] = ''  # Handle missing columns
+                    
+            ws.cell(row=row_idx, column=3, value=row['Объект'])
+            ws.cell(row=row_idx, column=4, value='релевантно')
+            ws.cell(row=row_idx, column=5, value=row['Sentiment'])
+            ws.cell(row=row_idx, column=6, value=row.get('Impact', ''))
+            ws.cell(row=row_idx, column=7, value=row['Заголовок'])
+            ws.cell(row=row_idx, column=8, value=row['Выдержки из текста'])
+            row_idx += 1
         
-        # Copy 'Публикации' sheet
-        original_df = pd.read_excel(uploaded_file, sheet_name='Публикации')
+        # Copy processed rows to 'Публикации' sheet
         ws = wb['Публикации']
-        for r_idx, row in enumerate(dataframe_to_rows(original_df, index=False, header=True), start=1):
+        for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
             for c_idx, value in enumerate(row, start=1):
                 ws.cell(row=r_idx, column=c_idx, value=value)
-
-               
-        # Update 'Анализ' sheet with modified translation handling
+        
+        # Update 'Анализ' sheet safely
         ws = wb['Анализ']
         row_idx = 4
-        for _, row in df[df['Sentiment'] == 'Negative'].iterrows():
+        negative_df = df[df['Sentiment'] == 'Negative'].copy()
+        for _, row in negative_df.iterrows():
             ws.cell(row=row_idx, column=5, value=row['Объект'])
             ws.cell(row=row_idx, column=6, value=row['Заголовок'])
             ws.cell(row=row_idx, column=7, value="Риск убытка")
             
-            # Enhanced translation handling
-            if pd.notna(row['Reasoning']):
+            reasoning = row.get('Reasoning', '')
+            if reasoning and pd.notna(reasoning):
                 try:
                     grlm = init_langchain_llm("Groq (llama-3.1-70b)")
-                    translated_reasoning = translate_reasoning_to_russian(grlm, row['Reasoning'])
+                    translated_reasoning = translate_reasoning_to_russian(grlm, reasoning)
                     ws.cell(row=row_idx, column=8, value=translated_reasoning)
                 except Exception as e:
-                    st.warning(f"Translation error for row {row_idx}: {str(e)}")
-                    ws.cell(row=row_idx, column=8, value=row['Reasoning'])  # Use original text as fallback
+                    ws.cell(row=row_idx, column=8, value=reasoning)
             
             ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])
             row_idx += 1
         
         # Update 'Тех.приложение' sheet
-        tech_df = df[['Объект', 'Заголовок', 'Выдержки из текста', 'Translated', 'Sentiment', 'Impact', 'Reasoning']]
+        tech_cols = ['Объект', 'Заголовок', 'Выдержки из текста', 'Translated', 'Sentiment', 'Impact', 'Reasoning']
+        tech_df = df[[col for col in tech_cols if col in df.columns]].copy()
+        
         if 'Тех.приложение' not in wb.sheetnames:
             wb.create_sheet('Тех.приложение')
         ws = wb['Тех.приложение']
+        
         for r_idx, row in enumerate(dataframe_to_rows(tech_df, index=False, header=True), start=1):
             for c_idx, value in enumerate(row, start=1):
                 ws.cell(row=r_idx, column=c_idx, value=value)
-         
         
         output = io.BytesIO()
         wb.save(output)
@@ -1561,14 +1606,14 @@ def create_output_file(df, uploaded_file, llm):
         return output
         
     except Exception as e:
-        st.warning(f"Ошибка при создании выходного файла: {str(e)}")
+        st.error(f"Error creating output file: {str(e)}")
         return None
 
 def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.73):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.74):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
