@@ -548,26 +548,38 @@ class ProcessingUI:
         
     def setup_events_tab(self):
         """Setup the events timeline display"""
-        # Event type filter
-        self.event_filter = st.multiselect(
+        # Event type filter - store in session state
+        if 'event_filter' not in st.session_state:
+            st.session_state.event_filter = []
+            
+        st.session_state.event_filter = st.multiselect(
             "Тип события:",
             options=["Отчетность", "РЦБ", "Суд"],
-            default=None
+            default=None,
+            key="event_filter_key"
         )
         
         # Timeline container
-        self.timeline_container = st.container()
+        if 'timeline_container' not in st.session_state:
+            st.session_state.timeline_container = st.container()
         
     def setup_analytics_tab(self):
         """Setup the analytics display"""
-        # Processing speed chart
-        self.speed_chart = st.empty()
-        
-        # Sentiment distribution pie chart
-        self.sentiment_chart = st.empty()
-        
-        # Entity correlation matrix
-        self.correlation_chart = st.empty()
+        # Create containers for analytics
+        self.speed_container = st.container()
+        with self.speed_container:
+            st.subheader("Скорость обработки")
+            self.speed_chart = st.empty()
+            
+        self.sentiment_container = st.container()
+        with self.sentiment_container:
+            st.subheader("Распределение тональности")
+            self.sentiment_chart = st.empty()
+            
+        self.correlation_container = st.container()
+        with self.correlation_container:
+            st.subheader("Корреляция между метриками")
+            self.correlation_chart = st.empty()
         
     def update_stats(self, row, sentiment, event_type, processing_speed):
         """Update all statistics and displays"""
@@ -616,27 +628,45 @@ class ProcessingUI:
         
     def _update_recent_items(self, row, sentiment, event_type):
         """Update recent items display with custom styling"""
-        items_html = "<div style='max-height: 300px; overflow-y: auto;'>"
-        
-        # Add new item to the beginning of the list
-        item_class = 'recent-item '
-        if sentiment == 'Negative':
-            item_class += 'negative-item'
-        elif sentiment == 'Positive':
-            item_class += 'positive-item'
-        if event_type != 'Нет':
-            item_class += ' event-item'
+        # Maintain a list of recent items in session state
+        if 'recent_items' not in st.session_state:
+            st.session_state.recent_items = []
             
-        items_html += f"""
-            <div class='{item_class}'>
-                <strong>{row['Объект']}</strong><br>
-                {row['Заголовок']}<br>
-                <small>
-                    Тональность: {sentiment} 
-                    {f" | Событие: {event_type}" if event_type != 'Нет' else ""}
-                </small>
-            </div>
-        """
+        # Add new item to the beginning of the list
+        new_item = {
+            'entity': row['Объект'],
+            'headline': row['Заголовок'],
+            'sentiment': sentiment,
+            'event_type': event_type,
+            'time': datetime.now().strftime('%H:%M:%S')
+        }
+        
+        st.session_state.recent_items.insert(0, new_item)
+        # Keep only last 10 items
+        st.session_state.recent_items = st.session_state.recent_items[:10]
+        
+        # Create HTML for all recent items
+        items_html = "<div style='max-height: 400px; overflow-y: auto;'>"
+        
+        for item in st.session_state.recent_items:
+            if item['sentiment'] in ['Positive', 'Negative']:  # Only show Positive and Negative items
+                item_class = 'recent-item '
+                if item['sentiment'] == 'Negative':
+                    item_class += 'negative-item'
+                elif item['sentiment'] == 'Positive':
+                    item_class += 'positive-item'
+                
+                items_html += f"""
+                    <div class='{item_class}'>
+                        <strong>{item['entity']}</strong><br>
+                        {item['headline']}<br>
+                        <small>
+                            Тональность: {item['sentiment']}
+                            {f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""}
+                            | {item['time']}
+                        </small>
+                    </div>
+                """
         
         items_html += "</div>"
         self.recent_items_container.markdown(items_html, unsafe_allow_html=True)
@@ -647,60 +677,101 @@ class ProcessingUI:
         if not stats:
             return
             
-        # Update entity filter options
-        current_options = set(self.entity_filter)
-        all_entities = set(stats.keys())
-        if current_options != all_entities:
-            self.entity_filter = list(all_entities)
-            
+        # Get filtered entities
+        filtered_entities = self.entity_filter or stats.keys()
+        
         # Create entity comparison chart using Plotly
         df_entities = pd.DataFrame.from_dict(stats, orient='index')
-        fig = go.Figure(data=[
-            go.Bar(name='Total', x=df_entities.index, y=df_entities['total']),
-            go.Bar(name='Negative', x=df_entities.index, y=df_entities['negative']),
-            go.Bar(name='Events', x=df_entities.index, y=df_entities['events'])
-        ])
-        fig.update_layout(barmode='group', title='Entity Statistics')
-        self.entity_chart.plotly_chart(fig, use_container_width=True)
+        df_entities = df_entities.loc[filtered_entities]  # Apply filter
         
-    def _update_events_view(self, row, event_type):
-        """Update events timeline"""
-        if event_type != 'Нет':
-            event_html = f"""
-                <div class='timeline-item'>
-                    <div class='timeline-marker'></div>
-                    <div class='timeline-content'>
-                        <h3>{event_type}</h3>
-                        <p><strong>{row['Объект']}</strong></p>
-                        <p>{row['Заголовок']}</p>
-                        <small>{datetime.now().strftime('%H:%M:%S')}</small>
-                    </div>
-                </div>
-            """
-            with self.timeline_container:
-                st.markdown(event_html, unsafe_allow_html=True)
+        fig = go.Figure(data=[
+            go.Bar(
+                name='Всего',
+                x=df_entities.index,
+                y=df_entities['total'],
+                marker_color='#E0E0E0'  # Light gray
+            ),
+            go.Bar(
+                name='Негативные',
+                x=df_entities.index,
+                y=df_entities['negative'],
+                marker_color='#FF6B6B'  # Red
+            ),
+            go.Bar(
+                name='События',
+                x=df_entities.index,
+                y=df_entities['events'],
+                marker_color='#2196F3'  # Blue
+            )
+        ])
+        
+        fig.update_layout(
+            barmode='group',
+            title='Статистика по организациям',
+            xaxis_title='Организация',
+            yaxis_title='Количество',
+            showlegend=True
+        )
+        
+        self.entity_chart.plotly_chart(fig, use_container_width=True)
                 
     def _update_analytics(self):
         """Update analytics tab visualizations"""
         stats = st.session_state.processing_stats
         
-        # Processing speed chart
-        speeds = stats['processing_speed'][-1:]  # Last 1 measurement
-        fig_speed = go.Figure(data=go.Scatter(y=speeds, mode='lines'))
-        fig_speed.update_layout(title='Processing Speed Over Time')
-        self.speed_chart.plotly_chart(fig_speed, use_container_width=True)
-        
-        # Add other analytics visualizations as needed
+        # Processing speed chart - showing last 20 measurements
+        speeds = stats['processing_speed'][-20:]
+        if speeds:
+            fig_speed = go.Figure(data=go.Scatter(
+                y=speeds,
+                mode='lines+markers',
+                name='Скорость',
+                line=dict(color='#4CAF50')
+            ))
+            fig_speed.update_layout(
+                title='Скорость обработки',
+                yaxis_title='Сообщений в секунду',
+                showlegend=True
+            )
+            self.speed_chart.plotly_chart(fig_speed, use_container_width=True)
+            
+        # Sentiment distribution pie chart
+        if stats['entities']:
+            total_negative = sum(e['negative'] for e in stats['entities'].values())
+            total_positive = sum(e['events'] for e in stats['entities'].values())
+            total_neutral = sum(e['total'] for e in stats['entities'].values()) - total_negative - total_positive
+            
+            fig_sentiment = go.Figure(data=[go.Pie(
+                labels=['Негативные', 'Позитивные', 'Нейтральные'],
+                values=[total_negative, total_positive, total_neutral],
+                marker_colors=['#FF6B6B', '#4ECDC4', '#95A5A6']
+            )])
+            self.sentiment_chart.plotly_chart(fig_sentiment, use_container_width=True)
         
     def update_progress(self, current, total):
-        """Update progress bar and elapsed time"""
+        """Update progress bar, elapsed time and estimated time remaining"""
         progress = current / total
         self.progress_bar.progress(progress)
         self.status.text(f"Обрабатываем {current} из {total} сообщений...")
         
-        # Update elapsed time
-        elapsed = time.time() - st.session_state.processing_stats['start_time']
-        self.timer_display.markdown(f"⏱️ {format_elapsed_time(elapsed)}")
+        # Calculate times
+        current_time = time.time()
+        elapsed = current_time - st.session_state.processing_stats['start_time']
+        
+        # Calculate processing speed and estimated time remaining
+        if current > 0:
+            speed = current / elapsed  # items per second
+            remaining_items = total - current
+            estimated_remaining = remaining_items / speed if speed > 0 else 0
+            
+            time_display = (
+                f"⏱️ Прошло: {format_elapsed_time(elapsed)} | "
+                f"Осталось: {format_elapsed_time(estimated_remaining)}"
+            )
+        else:
+            time_display = f"⏱️ Прошло: {format_elapsed_time(elapsed)}"
+            
+        self.timer_display.markdown(time_display)
 
 
 class EventDetectionSystem:
@@ -1477,7 +1548,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.70):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.71+):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
