@@ -562,7 +562,24 @@ class ProcessingUI:
         # Timeline container
         if 'timeline_container' not in st.session_state:
             st.session_state.timeline_container = st.container()
-        
+    
+    def _update_events_view(self, row, event_type):
+        """Update events timeline"""
+        if event_type != 'Нет':
+            event_html = f"""
+                <div class='timeline-item'>
+                    <div class='timeline-marker'></div>
+                    <div class='timeline-content'>
+                        <h3>{event_type}</h3>
+                        <p><strong>{row['Объект']}</strong></p>
+                        <p>{row['Заголовок']}</p>
+                        <p>{row['Выдержки из текста']}</p>
+                        <small>{datetime.now().strftime('%H:%M:%S')}</small>
+                    </div>
+                </div>
+            """
+            with self.timeline_container:
+                st.markdown(event_html, unsafe_allow_html=True)        
     def setup_analytics_tab(self):
         """Setup the analytics display"""
         # Create containers for analytics
@@ -1548,7 +1565,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.3.71+):::")
+        st.title("::: AI-анализ мониторинга новостей (v.3.72):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
