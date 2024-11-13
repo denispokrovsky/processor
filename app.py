@@ -499,39 +499,7 @@ class ProcessingUI:
             
         with tab4:
             self.setup_analytics_tab()
-            
-    def setup_main_metrics_tab(self):
-        """Setup the main metrics display"""
-        # Create metrics containers
-        metrics_cols = st.columns(4)
-        self.total_processed = metrics_cols[0].empty()
-        self.negative_count = metrics_cols[1].empty()
-        self.events_count = metrics_cols[2].empty()
-        self.speed_metric = metrics_cols[3].empty()
-        
-        # Recent items container with custom styling
-        st.markdown("""
-            <style>
-            .recent-item {
-                padding: 10px;
-                margin: 5px 0;
-                border-radius: 5px;
-                background-color: #f0f2f6;
-            }
-            .negative-item {
-                border-left: 4px solid #FF6B6B;
-            }
-            .positive-item {
-                border-left: 4px solid #4ECDC4;
-            }
-            .event-item {
-                border-left: 4px solid #FFE66D;
-            }
-            </style>
-        """, unsafe_allow_html=True)
-        
-        self.recent_items_container = st.empty()
-        
+                  
     def setup_entity_tab(self):
         """Setup the entity-wise analysis display"""
         # Entity filter
@@ -646,7 +614,7 @@ class ProcessingUI:
         self._update_recent_items(row, sentiment, event_type)
         
     def _update_recent_items(self, row, sentiment, event_type):
-        """Update recent items display with custom styling"""
+        """Update recent items display using Streamlit native components"""
         if 'recent_items' not in st.session_state:
             st.session_state.recent_items = []
             
@@ -661,46 +629,40 @@ class ProcessingUI:
         
         st.session_state.recent_items.insert(0, new_item)
         st.session_state.recent_items = st.session_state.recent_items[:10]  # Keep last 10 items
+
+        # Display items using Streamlit components
+        with self.recent_items_container:
+            for item in st.session_state.recent_items:
+                if item['sentiment'] in ['Positive', 'Negative']:
+                    # Use different background colors for different sentiments
+                    background_color = "#ffebee" if item['sentiment'] == 'Negative' else "#e8f5e9"
+                    
+                    # Create container for each item
+                    with st.container():
+                        st.markdown("""---""")  # Separator
+                        # Entity name in bold
+                        st.markdown(f"**{item['entity']}**")
+                        # Headline
+                        st.write(item['headline'])
+                        # Metadata row
+                        meta = f"_{item['sentiment']}"
+                        if item['event_type'] != 'Нет':
+                            meta += f" | Событие: {item['event_type']}"
+                        meta += f" | {item['time']}_"
+                        st.markdown(meta)
+
+    def setup_main_metrics_tab(self):
+        """Setup the main metrics display with updated styling"""
+        # Create metrics containers
+        metrics_cols = st.columns(4)
+        self.total_processed = metrics_cols[0].empty()
+        self.negative_count = metrics_cols[1].empty()
+        self.events_count = metrics_cols[2].empty()
+        self.speed_metric = metrics_cols[3].empty()
         
-        # Create combined markdown for all items
-        all_items_markdown = ""
-        for item in st.session_state.recent_items:
-            if item['sentiment'] in ['Positive', 'Negative']:
-                # Create color based on sentiment
-                color = "#FF6B6B" if item['sentiment'] == 'Negative' else "#4ECDC4"
-                
-                # Add item markdown
-                all_items_markdown += f"""
-                    <div style='
-                        padding: 10px;
-                        margin-bottom: 10px;
-                        border-radius: 4px;
-                        background-color: #f8f9fa;
-                        border-left: 4px solid {color};
-                    '>
-                        <div style='font-weight: bold;'>{item['entity']}</div>
-                        <div style='margin: 5px 0;'>{item['headline']}</div>
-                        <div style='font-size: 0.9em; color: #666;'>
-                            Тональность: {item['sentiment']}
-                            {f" | Событие: {item['event_type']}" if item['event_type'] != 'Нет' else ""}
-                            | {item['time']}
-                        </div>
-                    </div>
-                """
-        
-        # Add wrapper for scrolling
-        final_markdown = f"""
-            <div style='
-                max-height: 400px;
-                overflow-y: auto;
-                padding-right: 10px;
-            '>
-                {all_items_markdown}
-            </div>
-        """
-        
-        # Update the container with all items at once
-        self.recent_items_container.markdown(final_markdown, unsafe_allow_html=True)
+        # Recent items container
+        st.markdown("### Последние новости:")
+        self.recent_items_container = st.container()
         
     def _update_entity_view(self):
         """Update entity tab visualizations"""
@@ -1597,7 +1559,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.1):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.2):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
