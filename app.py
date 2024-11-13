@@ -971,18 +971,26 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         if groq_llm is None:
             st.warning("Failed to initialize Groq LLM for impact estimation. Using fallback model.")
         
-        # Prepare dataframe
-        text_columns = ['Объект', 'Заголовок', 'Выдержки из текста']
-        for col in text_columns:
-            df[col] = df[col].fillna('').astype(str).apply(lambda x: x.strip())
-            
-        # Initialize required columns
-        df['Translated'] = ''
-        df['Sentiment'] = ''
-        df['Impact'] = ''
-        df['Reasoning'] = ''
-        df['Event_Type'] = ''
-        df['Event_Summary'] = ''
+        # Initialize all required columns at the start
+        required_columns = {
+            'Объект': '',
+            'Заголовок': '',
+            'Выдержки из текста': '',
+            'Translated': '',
+            'Sentiment': 'Neutral',  # Default sentiment
+            'Impact': 'Неопределенный эффект',  # Default impact
+            'Reasoning': 'Не проанализировано',  # Default reasoning
+            'Event_Type': 'Нет',  # Default event type
+            'Event_Summary': ''  # Default event summary
+        }
+        
+        # Ensure all required columns exist in DataFrame
+        for col, default_value in required_columns.items():
+            if col not in df.columns:
+                df[col] = default_value
+                
+        # Copy all columns to processed_rows_df
+        processed_rows_df = pd.DataFrame(columns=df.columns)
         
         # Deduplication
         original_count = len(df)
@@ -1000,37 +1008,24 @@ def process_file(uploaded_file, model_choice, translation_method=None):
             # In process_file function, replace the stop handling section:
             if st.session_state.control.is_stopped():
                 st.warning("Обработку остановили")
-                if not processed_rows_df.empty:  # Only offer download if we have processed rows
+                # Ensure all required columns exist in processed_rows_df
+                for col, default_value in required_columns.items():
+                    if col not in processed_rows_df.columns:
+                        processed_rows_df[col] = default_value
+                        
+                if not processed_rows_df.empty:
                     try:
-                        # Ensure all required columns exist
-                        required_columns = ['Объект', 'Заголовок', 'Выдержки из текста', 'Sentiment', 'Event_Type', 'Event_Summary']
-                        for col in required_columns:
-                            if col not in processed_rows_df.columns:
-                                processed_rows_df[col] = ''
-                        
-                        # Ensure Impact and Reasoning columns exist
-                        if 'Impact' not in processed_rows_df.columns:
-                            processed_rows_df['Impact'] = 'Неопределенный эффект'
-                        if 'Reasoning' not in processed_rows_df.columns:
-                            processed_rows_df['Reasoning'] = 'Обработка была остановлена'
-                            
-                        # Create output file
                         output = create_output_file(processed_rows_df, uploaded_file, llm)
-                        
                         if output is not None:
                             st.download_button(
-                                label=f"📊 Скачать результат ({len(processed_rows_df)} из {total_rows} строк)",
+                                label=f"📊 Скачать результат ({len(processed_rows_df)} из {len(df)} строк)",
                                 data=output,
                                 file_name="partial_analysis.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="partial_download"
                             )
-                        else:
-                            st.error("Не удалось создать файл с частичными результатами")
-                            
                     except Exception as e:
                         st.error(f"Ошибка при создании файла с частичными результатами: {str(e)}")
-                        
                 return processed_rows_df
                 
             st.session_state.control.wait_if_paused()
@@ -1591,7 +1586,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.)5:::")
+        st.title("::: AI-анализ мониторинга новостей (v.)4.6:::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
