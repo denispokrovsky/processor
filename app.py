@@ -954,8 +954,8 @@ class TranslationSystem:
 def process_file(uploaded_file, model_choice, translation_method=None):
     df = None
     processed_rows_df = pd.DataFrame()
-    last_update_time = time.time()
-
+    last_time = time.time()
+    
     try:
         # Initialize UI and control systems
         ui = ProcessingUI()
@@ -1545,7 +1545,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.19):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.19+):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
