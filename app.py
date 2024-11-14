@@ -1440,7 +1440,7 @@ def create_output_file(df, uploaded_file):
         entity_stats['Негативные'] = df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int)
         entity_stats['Позитивные'] = df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
         
-        for idx, (entity, row) in enumerate(entity_stats.iterrows()):
+        for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
             ws.cell(row=idx, column=5, value=row['Объект'])
             ws.cell(row=idx, column=6, value=row['Всего'])
             ws.cell(row=idx, column=7, value=row['Негативные'])
@@ -1504,7 +1504,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.14):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.14+):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
