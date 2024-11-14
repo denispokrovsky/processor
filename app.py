@@ -36,6 +36,21 @@ import plotly.graph_objects as go
 from datetime import datetime
 import plotly.express as px
 
+def get_finbert():
+    if "finbert" not in st.session_state:
+        st.session_state.finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+    return st.session_state.finbert
+
+def get_roberta():
+    if "roberta" not in st.session_state:
+        st.session_state.roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
+    return st.session_state.roberta
+
+def get_finbert_tone():
+    if "finbert_tone" not in st.session_state:
+        st.session_state.finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
+    return st.session_state.finbert_tone
+
 
 class ProcessControl:
     def __init__(self):
@@ -1024,7 +1039,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                         result_df['Сводка'] = svodka_df.to_dict('records')
                         result_df['Публикации'] = processed_rows_df.to_dict('records')
                         
-                        output = create_output_file(processed_rows_df, uploaded_file)
+                        output = create_output_file(result_df, uploaded_file)
                         if output is not None:
                             st.download_button(
                                 label=f"📊 Скачать результат ({processed_rows} из {total_rows} строк)",
@@ -1152,9 +1167,9 @@ def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
 
     
 # Initialize sentiment analyzers
-finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
-roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
-finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
+#finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+#roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
+#finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
 
 
 def get_mapped_sentiment(result):
@@ -1170,13 +1185,13 @@ def get_mapped_sentiment(result):
 def analyze_sentiment(text):
     try:
         finbert_result = get_mapped_sentiment(
-            finbert(text, truncation=True, max_length=512)[0]
+            get_finbert()(text, truncation=True, max_length=512)[0]
         )
         roberta_result = get_mapped_sentiment(
-            roberta(text, truncation=True, max_length=512)[0]
+            get_roberta()(text, truncation=True, max_length=512)[0]
         )
         finbert_tone_result = get_mapped_sentiment(
-            finbert_tone(text, truncation=True, max_length=512)[0]
+            get_finbert_tone()(text, truncation=True, max_length=512)[0]
         )
         
         # Count occurrences of each sentiment
@@ -1532,7 +1547,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.16):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.17):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
