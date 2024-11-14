@@ -977,185 +977,110 @@ def process_file(uploaded_file, model_choice, translation_method=None):
             'Заголовок': '',
             'Выдержки из текста': '',
             'Translated': '',
-            'Sentiment': 'Neutral',  # Default sentiment
-            'Impact': 'Неопределенный эффект',  # Default impact
-            'Reasoning': 'Не проанализировано',  # Default reasoning
-            'Event_Type': 'Нет',  # Default event type
-            'Event_Summary': ''  # Default event summary
+            'Sentiment': 'Neutral',
+            'Impact': 'Неопределенный эффект',
+            'Reasoning': 'Не проанализировано',
+            'Event_Type': 'Нет',
+            'Event_Summary': ''
         }
         
         # Ensure all required columns exist in DataFrame
         for col, default_value in required_columns.items():
             if col not in df.columns:
                 df[col] = default_value
-                
-        # Copy all columns to processed_rows_df
-        processed_rows_df = pd.DataFrame(columns=list(required_columns.keys()))
-        #processed_rows_df = pd.DataFrame(columns=df.columns)
         
-        # Deduplication
-        original_count = len(df)
-        df = df.groupby('Объект', group_keys=False).apply(
-            lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 65)
-        ).reset_index(drop=True)
-        st.write(f"Из {original_count} сообщений удалено {original_count - len(df)} дубликатов.")
+        # Create processed_rows_df with all columns from original df and required columns
+        all_columns = list(set(list(df.columns) + list(required_columns.keys())))
+        processed_rows_df = pd.DataFrame(columns=all_columns)
         
         # Process rows
         total_rows = len(df)
         processed_rows = 0
         
         for idx, row in df.iterrows():
-            # Check for stop/pause
-            # In process_file function, replace the stop handling section:
             if st.session_state.control.is_stopped():
                 st.warning("Обработку остановили")
                 if not processed_rows_df.empty:
                     try:
-                        # Ensure all required columns have values
-                        for col, default_value in required_columns.items():
-                            if col not in processed_rows_df.columns:
-                                processed_rows_df[col] = default_value
-                            else:
-                                # Fill NaN values with defaults
-                                processed_rows_df[col] = processed_rows_df[col].fillna(default_value)
+                        # Create the output files for each sheet
+                        monitoring_df = processed_rows_df[processed_rows_df['Event_Type'] != 'Нет'].copy()
+                        svodka_df = processed_rows_df.groupby('Объект').agg({
+                            'Объект': 'first',
+                            'Sentiment': lambda x: sum(x == 'Negative'),
+                            'Event_Type': lambda x: sum(x != 'Нет')
+                        }).reset_index()
                         
-                        # Copy original file columns that might be needed
-                        original_df = pd.read_excel(uploaded_file, sheet_name='Публикации')
-                        for col in original_df.columns:
-                            if col not in processed_rows_df.columns:
-                                processed_rows_df[col] = ''
-                                
-                        # Create output file
-                        output = create_output_file(processed_rows_df, uploaded_file, llm)
+                        # Prepare final DataFrame for file creation
+                        result_df = pd.DataFrame()
+                        result_df['Мониторинг'] = monitoring_df.to_dict('records')
+                        result_df['Сводка'] = svodka_df.to_dict('records')
+                        result_df['Публикации'] = processed_rows_df.to_dict('records')
+                        
+                        output = create_output_file(result_df, uploaded_file, llm)
                         if output is not None:
                             st.download_button(
-                                label=f"📊 Скачать результат ({len(processed_rows_df)} из {len(df)} строк)",
+                                label=f"📊 Скачать результат ({processed_rows} из {total_rows} строк)",
                                 data=output,
                                 file_name="partial_analysis.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="partial_download"
                             )
-                        else:
-                            st.error("Не удалось создать файл с частичными результатами")
                     except Exception as e:
-                        st.error(f"Ошибка при создании файла с частичными результатами: {str(e)}\n{str(type(e))}")
-                        st.error(f"Processed rows: {len(processed_rows_df)}")
+                        st.error(f"Ошибка при создании файла: {str(e)}")
                         
                 return processed_rows_df
-
                 
             st.session_state.control.wait_if_paused()
             if st.session_state.control.is_paused():
-                st.info("Обработка на паузе. Можно возобновить.")
-                if not processed_rows_df.empty:  # Only offer download if we have processed rows
-                    output = create_output_file(processed_rows_df, uploaded_file, llm)
-                    if output is not None:
-                        st.download_button(
-                            label=f"📊 Скачать результат ({processed_rows} из {total_rows} строк)",
-                            data=output,
-                            file_name="partial_analysis.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="partial_download"
-                        )
-                break                
                 continue
                 
             try:
+                # Copy original row data
+                new_row = row.copy()
+                
                 # Translation
                 translated_text = translator.translate_text(row['Выдержки из текста'])
-                df.at[idx, 'Translated'] = translated_text
+                new_row['Translated'] = translated_text
                 
                 # Sentiment analysis
                 sentiment = analyze_sentiment(translated_text)
-                df.at[idx, 'Sentiment'] = sentiment
+                new_row['Sentiment'] = sentiment
                 
-                # Event detection using BERT/ MT-5
+                # Event detection
                 event_type, event_summary = event_detector.detect_event_type(
                     row['Выдержки из текста'],
                     row['Объект']
                 )
-                df.at[idx, 'Event_Type'] = event_type
-                df.at[idx, 'Event_Summary'] = event_summary
-                
-
-                # Show events in real-time
-                #if event_type != "Нет":
-                #    ui.show_event(
-                #        row['Объект'],
-                #        event_type,
-                #        row['Заголовок']
-                #    )
-                
-                #Calculate processing speed (items per second)
-                current_time = time.time()
-
-                time_delta = current_time - last_update_time
-                if time_delta > 0:
-                    processing_speed = 1 / time_delta  # items per second
-                else:
-                    processing_speed = 0
-                
-                # Update live statistics
-                ui.update_stats(row, sentiment, event_type, processing_speed)
-
-                
-                # Handle negative sentiment
+                new_row['Event_Type'] = event_type
+                new_row['Event_Summary'] = event_summary
                 
                 # Handle negative sentiment
                 if sentiment == "Negative":
                     try:
-                        # Validate translated text
                         if translated_text and len(translated_text.strip()) > 0:
-                            # Initialize Groq LLM if not already done
-                            if 'groq_llm' not in locals():
-                                groq_llm = ensure_groq_llm()
-                            
                             impact, reasoning = estimate_impact(
                                 groq_llm if groq_llm is not None else llm,
                                 translated_text,
                                 row['Объект']
                             )
-                        else:
-                            # Use original text if translation failed
-                            original_text = row['Выдержки из текста']
-                            if original_text and len(original_text.strip()) > 0:
-                                impact, reasoning = estimate_impact(
-                                    groq_llm if groq_llm is not None else llm,
-                                    original_text,
-                                    row['Объект']
-                                )
-                            else:
-                                impact = "Неопределенный эффект"
-                                reasoning = "Текст новости отсутствует"
-                                st.warning(f"Empty news text for {row['Объект']}")
-
+                            new_row['Impact'] = impact
+                            new_row['Reasoning'] = reasoning
                     except Exception as e:
-                        impact = "Неопределенный эффект"
-                        reasoning = "Error in impact estimation"
-                        st.warning(f"Impact estimation error: {str(e)}")
-                    
-                    # Store results
-                    df.at[idx, 'Impact'] = impact
-                    df.at[idx, 'Reasoning'] = reasoning
-
-
-                row_data = {col: row.get(col, default_val) for col, default_val in required_columns.items()}
-                processed_rows_df = pd.concat([processed_rows_df, pd.DataFrame([row_data])], ignore_index=True)
-                #processed_rows_df = pd.concat([processed_rows_df, df.iloc[[idx]]], ignore_index=True)
-
+                        new_row['Impact'] = "Неопределенный эффект"
+                        new_row['Reasoning'] = "Ошибка анализа"
+                
+                # Add processed row to DataFrame
+                processed_rows_df = pd.concat([processed_rows_df, pd.DataFrame([new_row])], ignore_index=True)
+                
                 # Update progress
                 processed_rows += 1
                 ui.update_progress(processed_rows, total_rows)
-                last_update_time = current_time
-
+                
             except Exception as e:
                 st.warning(f"Ошибка в обработке ряда {idx + 1}: {str(e)}")
                 continue
-            
-            time.sleep(0.1)
-        
                 
-        return processed_rows_df if st.session_state.control.is_stopped() else df
+        return processed_rows_df
         
     except Exception as e:
         st.error(f"Ошибка в обработке файла: {str(e)}")
@@ -1481,129 +1406,34 @@ def translate_reasoning_to_russian(llm, text):
         else:
             return str(response).strip()
 
+
 def create_output_file(df, uploaded_file, llm):
+    """Simple function to write prepared DataFrame to Excel file"""
     try:
         wb = load_workbook("sample_file.xlsx")
         
-        # Update 'Мониторинг' sheet with events
-        ws = wb['Мониторинг']
-        row_idx = 4
-        events_df = df[df['Event_Type'] != 'Нет'].copy()
-        for _, row in events_df.iterrows():
-            ws.cell(row=row_idx, column=5, value=row['Объект'])
-            ws.cell(row=row_idx, column=6, value=row['Заголовок'])
-            ws.cell(row=row_idx, column=7, value=row['Event_Type'])
-            ws.cell(row=row_idx, column=8, value=row['Event_Summary'])
-            ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])
-            row_idx += 1
+        # Copy all sheets from processed DataFrame
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            if sheet_name == 'Публикации':
+                for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
+                    for c_idx, value in enumerate(row, start=1):
+                        ws.cell(row=r_idx, column=c_idx, value=value)
             
-        # Calculate statistics safely
-        try:
-            entity_stats = pd.DataFrame({
-                'Объект': df['Объект'].unique(),
-                'Всего': df.groupby('Объект').size(),
-                'Негативные': df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int),
-                'Позитивные': df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
-            }).sort_values('Негативные', ascending=False)
-        except Exception as e:
-            st.warning(f"Error calculating entity stats: {str(e)}")
-            entity_stats = pd.DataFrame(columns=['Объект', 'Всего', 'Негативные', 'Позитивные'])
-            
-        # Calculate impacts safely
-        entity_impacts = {}
-        for entity in df['Объект'].unique():
-            try:
-                entity_df = df[df['Объект'] == entity]
-                negative_df = entity_df[entity_df['Sentiment'] == 'Negative']
-                if len(negative_df) > 0 and 'Impact' in negative_df.columns:
-                    impacts = negative_df['Impact'].dropna()
-                    entity_impacts[entity] = impacts.iloc[0] if len(impacts) > 0 else 'Неопределенный эффект'
-                else:
-                    entity_impacts[entity] = 'Неопределенный эффект'
-            except Exception as e:
-                st.warning(f"Error calculating impact for {entity}: {str(e)}")
-                entity_impacts[entity] = 'Неопределенный эффект'
-        
-        # Update 'Сводка' sheet
-        ws = wb['Сводка']
-        for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
-            ws.cell(row=idx, column=5, value=entity)
-            ws.cell(row=idx, column=6, value=row['Всего'])
-            ws.cell(row=idx, column=7, value=row['Негативные'])
-            ws.cell(row=idx, column=8, value=row['Позитивные'])
-            ws.cell(row=idx, column=9, value=entity_impacts.get(entity, 'Неопределенный эффект'))
-        
-        # Update 'Значимые' sheet with both negative and positive
-        ws = wb['Значимые']
-        row_idx = 3
-        sentiment_df = df[df['Sentiment'].isin(['Negative', 'Positive'])].copy()
-        for _, row in sentiment_df.iterrows():
-            cols = ['Объект', 'Заголовок', 'Sentiment', 'Impact', 'Выдержки из текста']
-            for col in cols:
-                if col not in row:
-                    row[col] = ''  # Handle missing columns
-                    
-            ws.cell(row=row_idx, column=3, value=row['Объект'])
-            ws.cell(row=row_idx, column=4, value='релевантно')
-            ws.cell(row=row_idx, column=5, value=row['Sentiment'])
-            ws.cell(row=row_idx, column=6, value=row.get('Impact', ''))
-            ws.cell(row=row_idx, column=7, value=row['Заголовок'])
-            ws.cell(row=row_idx, column=8, value=row['Выдержки из текста'])
-            row_idx += 1
-        
-        # Copy processed rows to 'Публикации' sheet
-        ws = wb['Публикации']
-        for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
-            for c_idx, value in enumerate(row, start=1):
-                ws.cell(row=r_idx, column=c_idx, value=value)
-        
-        # Update 'Анализ' sheet safely
-        ws = wb['Анализ']
-        row_idx = 4
-        negative_df = df[df['Sentiment'] == 'Negative'].copy()
-        for _, row in negative_df.iterrows():
-            ws.cell(row=row_idx, column=5, value=row['Объект'])
-            ws.cell(row=row_idx, column=6, value=row['Заголовок'])
-            ws.cell(row=row_idx, column=7, value="Риск убытка")
-            
-            reasoning = row.get('Reasoning', '')
-            if reasoning and pd.notna(reasoning):
-                try:
-                    grlm = init_langchain_llm("Groq (llama-3.1-70b)")
-                    translated_reasoning = translate_reasoning_to_russian(grlm, reasoning)
-                    ws.cell(row=row_idx, column=8, value=translated_reasoning)
-                except Exception as e:
-                    ws.cell(row=row_idx, column=8, value=reasoning)
-            
-            ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])
-            row_idx += 1
-        
-        # Update 'Тех.приложение' sheet
-        tech_cols = ['Объект', 'Заголовок', 'Выдержки из текста', 'Translated', 'Sentiment', 'Impact', 'Reasoning']
-        tech_df = df[[col for col in tech_cols if col in df.columns]].copy()
-        
-        if 'Тех.приложение' not in wb.sheetnames:
-            wb.create_sheet('Тех.приложение')
-        ws = wb['Тех.приложение']
-        
-        for r_idx, row in enumerate(dataframe_to_rows(tech_df, index=False, header=True), start=1):
-            for c_idx, value in enumerate(row, start=1):
-                ws.cell(row=r_idx, column=c_idx, value=value)
-        
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
         return output
-        
     except Exception as e:
-        st.error(f"Error creating output file: {str(e)}")
+        st.error(f"Error saving file: {str(e)}")
         return None
+
 
 def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.8):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.9):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
@@ -1635,7 +1465,7 @@ def main():
         .signature {
             position: fixed;
             right: 12px;
-            up: 12px;
+            down: 12px;
             font-size: 14px;
             color: #FF0000;
             opacity: 0.9;
