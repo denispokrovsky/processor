@@ -990,7 +990,8 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 df[col] = default_value
                 
         # Copy all columns to processed_rows_df
-        processed_rows_df = pd.DataFrame(columns=df.columns)
+        processed_rows_df = pd.DataFrame(columns=list(required_columns.keys()))
+        #processed_rows_df = pd.DataFrame(columns=df.columns)
         
         # Deduplication
         original_count = len(df)
@@ -1008,13 +1009,23 @@ def process_file(uploaded_file, model_choice, translation_method=None):
             # In process_file function, replace the stop handling section:
             if st.session_state.control.is_stopped():
                 st.warning("Обработку остановили")
-                # Ensure all required columns exist in processed_rows_df
-                for col, default_value in required_columns.items():
-                    if col not in processed_rows_df.columns:
-                        processed_rows_df[col] = default_value
-                        
                 if not processed_rows_df.empty:
                     try:
+                        # Ensure all required columns have values
+                        for col, default_value in required_columns.items():
+                            if col not in processed_rows_df.columns:
+                                processed_rows_df[col] = default_value
+                            else:
+                                # Fill NaN values with defaults
+                                processed_rows_df[col] = processed_rows_df[col].fillna(default_value)
+                        
+                        # Copy original file columns that might be needed
+                        original_df = pd.read_excel(uploaded_file, sheet_name='Публикации')
+                        for col in original_df.columns:
+                            if col not in processed_rows_df.columns:
+                                processed_rows_df[col] = ''
+                                
+                        # Create output file
                         output = create_output_file(processed_rows_df, uploaded_file, llm)
                         if output is not None:
                             st.download_button(
@@ -1024,9 +1035,14 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="partial_download"
                             )
+                        else:
+                            st.error("Не удалось создать файл с частичными результатами")
                     except Exception as e:
-                        st.error(f"Ошибка при создании файла с частичными результатами: {str(e)}")
+                        st.error(f"Ошибка при создании файла с частичными результатами: {str(e)}\n{str(type(e))}")
+                        st.error(f"Processed rows: {len(processed_rows_df)}")
+                        
                 return processed_rows_df
+
                 
             st.session_state.control.wait_if_paused()
             if st.session_state.control.is_paused():
@@ -1123,8 +1139,9 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                     df.at[idx, 'Reasoning'] = reasoning
 
 
-                
-                processed_rows_df = pd.concat([processed_rows_df, df.iloc[[idx]]], ignore_index=True)
+                row_data = {col: row.get(col, default_val) for col, default_val in required_columns.items()}
+                processed_rows_df = pd.concat([processed_rows_df, pd.DataFrame([row_data])], ignore_index=True)
+                #processed_rows_df = pd.concat([processed_rows_df, df.iloc[[idx]]], ignore_index=True)
 
                 # Update progress
                 processed_rows += 1
@@ -1586,7 +1603,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.)4.6:::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.7):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
