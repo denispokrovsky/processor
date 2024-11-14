@@ -1440,7 +1440,7 @@ def create_output_file(df, uploaded_file, llm):
         entity_stats['Позитивные'] = df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
         
         for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
-            ws.cell(row=idx, column=5, value=entity)
+            ws.cell(row=idx, column=5, value=row['Объект'])
             ws.cell(row=idx, column=6, value=row['Всего'])
             ws.cell(row=idx, column=7, value=row['Негативные'])
             ws.cell(row=idx, column=8, value=row['Позитивные'])
