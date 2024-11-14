@@ -992,7 +992,14 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         # Create processed_rows_df with all columns from original df and required columns
         all_columns = list(set(list(df.columns) + list(required_columns.keys())))
         processed_rows_df = pd.DataFrame(columns=all_columns)
-        
+
+        # Deduplication
+        original_count = len(df)
+        df = df.groupby('Объект', group_keys=False).apply(
+            lambda x: fuzzy_deduplicate(x, 'Выдержки из текста', 55)
+        ).reset_index(drop=True)
+        st.write(f"Из {original_count} сообщений удалено {original_count - len(df)} дубликатов.")
+
         # Process rows
         total_rows = len(df)
         processed_rows = 0
@@ -1017,7 +1024,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                         result_df['Сводка'] = svodka_df.to_dict('records')
                         result_df['Публикации'] = processed_rows_df.to_dict('records')
                         
-                        output = create_output_file(result_df, uploaded_file)
+                        output = create_output_file(processed_rows_df, uploaded_file)
                         if output is not None:
                             st.download_button(
                                 label=f"📊 Скачать результат ({processed_rows} из {total_rows} строк)",
@@ -1525,7 +1532,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.15):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.16):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
