@@ -36,21 +36,6 @@ import plotly.graph_objects as go
 from datetime import datetime
 import plotly.express as px
 
-def get_finbert():
-    if "finbert" not in st.session_state:
-        st.session_state.finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
-    return st.session_state.finbert
-
-def get_roberta():
-    if "roberta" not in st.session_state:
-        st.session_state.roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
-    return st.session_state.roberta
-
-def get_finbert_tone():
-    if "finbert_tone" not in st.session_state:
-        st.session_state.finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
-    return st.session_state.finbert_tone
-
 
 class ProcessControl:
     def __init__(self):
@@ -1167,9 +1152,9 @@ def display_sentiment_results(row, sentiment, impact=None, reasoning=None):
 
     
 # Initialize sentiment analyzers
-#finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
-#roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
-#finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
+finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+roberta = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
+finbert_tone = pipeline("sentiment-analysis", model="yiyanghkust/finbert-tone")
 
 
 def get_mapped_sentiment(result):
@@ -1185,13 +1170,13 @@ def get_mapped_sentiment(result):
 def analyze_sentiment(text):
     try:
         finbert_result = get_mapped_sentiment(
-            get_finbert()(text, truncation=True, max_length=512)[0]
+            finbert(text, truncation=True, max_length=512)[0]
         )
         roberta_result = get_mapped_sentiment(
-            get_roberta()(text, truncation=True, max_length=512)[0]
+            roberta(text, truncation=True, max_length=512)[0]
         )
         finbert_tone_result = get_mapped_sentiment(
-            get_finbert_tone()(text, truncation=True, max_length=512)[0]
+            finbert_tone(text, truncation=True, max_length=512)[0]
         )
         
         # Count occurrences of each sentiment
@@ -1547,7 +1532,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.17):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.18):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
