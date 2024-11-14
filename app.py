@@ -1433,23 +1433,44 @@ def create_output_file(df, uploaded_file):
 
         # 3. Update 'Сводка' sheet
         ws = wb['Сводка']
-        entity_stats = pd.DataFrame({
-            'Объект': df['Объект'].unique()
-        })
-        entity_stats['Всего'] = df.groupby('Объект').size()
-        entity_stats['Негативные'] = df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int)
-        entity_stats['Позитивные'] = df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
-        
-        for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
-            ws.cell(row=idx, column=5, value=row['Объект'])
-            ws.cell(row=idx, column=6, value=row['Всего'])
-            ws.cell(row=idx, column=7, value=row['Негативные'])
-            ws.cell(row=idx, column=8, value=row['Позитивные'])
-            # Get impact for entity
+        unique_entities = df['Объект'].unique()
+        entity_stats = []
+        for entity in unique_entities:
             entity_df = df[df['Объект'] == entity]
+            stats = {
+                'Объект': entity,
+                'Всего': len(entity_df),
+                'Негативные': len(entity_df[entity_df['Sentiment'] == 'Negative']),
+                'Позитивные': len(entity_df[entity_df['Sentiment'] == 'Positive'])
+            }
+            
+            # Get most severe impact for entity
             negative_df = entity_df[entity_df['Sentiment'] == 'Negative']
-            impact = negative_df['Impact'].iloc[0] if len(negative_df) > 0 else '-'
-            ws.cell(row=idx, column=9, value=impact)
+            if len(negative_df) > 0:
+                impacts = negative_df['Impact'].dropna()
+                if len(impacts) > 0:
+                    stats['Impact'] = impacts.iloc[0]
+                else:
+                    stats['Impact'] = 'Неопределенный эффект'
+            else:
+                stats['Impact'] = 'Неопределенный эффект'
+                
+            entity_stats.append(stats)
+
+        
+        # Sort by number of negative mentions
+        entity_stats = sorted(entity_stats, key=lambda x: x['Негативные'], reverse=True)
+        
+        # Write to sheet
+        row_idx = 4  # Starting row in Сводка sheet
+        for stats in entity_stats:
+            ws.cell(row=row_idx, column=5, value=stats['Объект'])
+            ws.cell(row=row_idx, column=6, value=stats['Всего'])
+            ws.cell(row=row_idx, column=7, value=stats['Негативные'])
+            ws.cell(row=row_idx, column=8, value=stats['Позитивные'])
+            ws.cell(row=row_idx, column=9, value=stats['Impact'])
+            row_idx += 1
+
 
         # 4. Update 'Значимые' sheet
         ws = wb['Значимые']
@@ -1504,7 +1525,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.14+):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.15):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
