@@ -1407,7 +1407,7 @@ def translate_reasoning_to_russian(llm, text):
             return str(response).strip()
 
 
-def create_output_file(df, uploaded_file, llm):
+def create_output_file(df, uploaded_file):
     """Create Excel file with multiple sheets from processed DataFrame"""
     try:
         wb = load_workbook("sample_file.xlsx")
@@ -1447,7 +1447,7 @@ def create_output_file(df, uploaded_file, llm):
             # Get impact for entity
             entity_df = df[df['Объект'] == entity]
             negative_df = entity_df[entity_df['Sentiment'] == 'Negative']
-            impact = negative_df['Impact'].iloc[0] if len(negative_df) > 0 else 'Неопределенный эффект'
+            impact = negative_df['Impact'].iloc[0] if len(negative_df) > 0 else '-'
             ws.cell(row=idx, column=9, value=impact)
 
         # 4. Update 'Значимые' sheet
@@ -1458,7 +1458,7 @@ def create_output_file(df, uploaded_file, llm):
             ws.cell(row=row_idx, column=3, value=row['Объект'])
             ws.cell(row=row_idx, column=4, value='релевантно')
             ws.cell(row=row_idx, column=5, value=row['Sentiment'])
-            ws.cell(row=row_idx, column=6, value=row.get('Impact', 'Неопределенный эффект'))
+            ws.cell(row=row_idx, column=6, value=row.get('Impact', '-'))
             ws.cell(row=row_idx, column=7, value=row['Заголовок'])
             ws.cell(row=row_idx, column=8, value=row['Выдержки из текста'])
             row_idx += 1
@@ -1471,7 +1471,7 @@ def create_output_file(df, uploaded_file, llm):
             ws.cell(row=row_idx, column=5, value=row['Объект'])
             ws.cell(row=row_idx, column=6, value=row['Заголовок'])
             ws.cell(row=row_idx, column=7, value="Риск убытка")
-            ws.cell(row=row_idx, column=8, value=row.get('Reasoning', 'Не проанализировано'))
+            ws.cell(row=row_idx, column=8, value=row.get('Reasoning', '-'))
             ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])
             row_idx += 1
 
@@ -1503,7 +1503,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.10):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.11):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
