@@ -1603,7 +1603,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.7):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.8):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
