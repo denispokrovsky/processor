@@ -1080,6 +1080,19 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                 # Add processed row to DataFrame
                 processed_rows_df = pd.concat([processed_rows_df, pd.DataFrame([new_row])], ignore_index=True)
                 
+                # Calculate processing speed
+                current_time = time.time()
+                processing_speed = 1.0 / (current_time - last_time) if (current_time - last_time) > 0 else 0
+                last_time = current_time
+                
+                # Update UI stats
+                ui.update_stats(
+                    row=new_row,
+                    sentiment=sentiment,
+                    event_type=event_type,
+                    processing_speed=processing_speed
+                )
+
                 # Update progress
                 processed_rows += 1
                 ui.update_progress(processed_rows, total_rows)
@@ -1532,7 +1545,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.18):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.19):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
