@@ -335,7 +335,7 @@ def estimate_impact(llm, news_text, entity):
         
         Format your response exactly as:
         Impact: [category]
-        Reasoning: [explanation in 2-3 sentences]
+        Reasoning: [explanation in 2-3 sentences in Russian]
         """
         
         prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
@@ -1016,7 +1016,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                         result_df['Сводка'] = svodka_df.to_dict('records')
                         result_df['Публикации'] = processed_rows_df.to_dict('records')
                         
-                        output = create_output_file(result_df, uploaded_file, llm)
+                        output = create_output_file(result_df, uploaded_file)
                         if output is not None:
                             st.download_button(
                                 label=f"📊 Скачать результат ({processed_rows} из {total_rows} строк)",
@@ -1503,7 +1503,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.11):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.12):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
@@ -1643,8 +1643,7 @@ def main():
                 # Create downloadable report
                 output = create_output_file(
                     st.session_state.processed_df,
-                    uploaded_file,
-                    init_langchain_llm(model_choice)
+                    uploaded_file
                 )
                 
                 st.download_button(
