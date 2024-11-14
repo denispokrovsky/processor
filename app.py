@@ -335,7 +335,7 @@ def estimate_impact(llm, news_text, entity):
         
         Format your response exactly as:
         Impact: [category]
-        Reasoning: [explanation in 2-3 sentences in Russian]
+        Reasoning: [explanation in 2-3 sentences]
         """
         
         prompt = PromptTemplate(template=template, input_variables=["entity", "news"])
@@ -996,7 +996,8 @@ def process_file(uploaded_file, model_choice, translation_method=None):
         # Process rows
         total_rows = len(df)
         processed_rows = 0
-        
+        grlm = init_langchain_llm("Groq (llama-3.1-70b)")
+
         for idx, row in df.iterrows():
             if st.session_state.control.is_stopped():
                 st.warning("Обработку остановили")
@@ -1064,7 +1065,7 @@ def process_file(uploaded_file, model_choice, translation_method=None):
                                 row['Объект']
                             )
                             new_row['Impact'] = impact
-                            new_row['Reasoning'] = reasoning
+                            new_row['Reasoning'] = translate_reasoning_to_russian(grlm, reasoning)
                     except Exception as e:
                         new_row['Impact'] = "Неопределенный эффект"
                         new_row['Reasoning'] = "Ошибка анализа"
@@ -1439,7 +1440,7 @@ def create_output_file(df, uploaded_file):
         entity_stats['Негативные'] = df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int)
         entity_stats['Позитивные'] = df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
         
-        for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
+        for idx, (entity, row) in enumerate(entity_stats.iterrows()):
             ws.cell(row=idx, column=5, value=row['Объект'])
             ws.cell(row=idx, column=6, value=row['Всего'])
             ws.cell(row=idx, column=7, value=row['Негативные'])
@@ -1503,7 +1504,7 @@ def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.12):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.14):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
