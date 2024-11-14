@@ -1408,32 +1408,102 @@ def translate_reasoning_to_russian(llm, text):
 
 
 def create_output_file(df, uploaded_file, llm):
-    """Simple function to write prepared DataFrame to Excel file"""
+    """Create Excel file with multiple sheets from processed DataFrame"""
     try:
         wb = load_workbook("sample_file.xlsx")
         
-        # Copy all sheets from processed DataFrame
-        for sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
-            if sheet_name == 'Публикации':
-                for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
-                    for c_idx, value in enumerate(row, start=1):
-                        ws.cell(row=r_idx, column=c_idx, value=value)
-            
+        # 1. Update 'Публикации' sheet
+        ws = wb['Публикации']
+        for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
+            for c_idx, value in enumerate(row, start=1):
+                ws.cell(row=r_idx, column=c_idx, value=value)
+
+        # 2. Update 'Мониторинг' sheet with events
+        ws = wb['Мониторинг']
+        row_idx = 4
+        events_df = df[df['Event_Type'] != 'Нет'].copy()
+        for _, row in events_df.iterrows():
+            ws.cell(row=row_idx, column=5, value=row['Объект'])
+            ws.cell(row=row_idx, column=6, value=row['Заголовок'])
+            ws.cell(row=row_idx, column=7, value=row['Event_Type'])
+            ws.cell(row=row_idx, column=8, value=row['Event_Summary'])
+            ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])
+            row_idx += 1
+
+        # 3. Update 'Сводка' sheet
+        ws = wb['Сводка']
+        entity_stats = pd.DataFrame({
+            'Объект': df['Объект'].unique()
+        })
+        entity_stats['Всего'] = df.groupby('Объект').size()
+        entity_stats['Негативные'] = df[df['Sentiment'] == 'Negative'].groupby('Объект').size().fillna(0).astype(int)
+        entity_stats['Позитивные'] = df[df['Sentiment'] == 'Positive'].groupby('Объект').size().fillna(0).astype(int)
+        
+        for idx, (entity, row) in enumerate(entity_stats.iterrows(), start=4):
+            ws.cell(row=idx, column=5, value=entity)
+            ws.cell(row=idx, column=6, value=row['Всего'])
+            ws.cell(row=idx, column=7, value=row['Негативные'])
+            ws.cell(row=idx, column=8, value=row['Позитивные'])
+            # Get impact for entity
+            entity_df = df[df['Объект'] == entity]
+            negative_df = entity_df[entity_df['Sentiment'] == 'Negative']
+            impact = negative_df['Impact'].iloc[0] if len(negative_df) > 0 else 'Неопределенный эффект'
+            ws.cell(row=idx, column=9, value=impact)
+
+        # 4. Update 'Значимые' sheet
+        ws = wb['Значимые']
+        row_idx = 3
+        sentiment_df = df[df['Sentiment'].isin(['Negative', 'Positive'])].copy()
+        for _, row in sentiment_df.iterrows():
+            ws.cell(row=row_idx, column=3, value=row['Объект'])
+            ws.cell(row=row_idx, column=4, value='релевантно')
+            ws.cell(row=row_idx, column=5, value=row['Sentiment'])
+            ws.cell(row=row_idx, column=6, value=row.get('Impact', 'Неопределенный эффект'))
+            ws.cell(row=row_idx, column=7, value=row['Заголовок'])
+            ws.cell(row=row_idx, column=8, value=row['Выдержки из текста'])
+            row_idx += 1
+
+        # 5. Update 'Анализ' sheet
+        ws = wb['Анализ']
+        row_idx = 4
+        negative_df = df[df['Sentiment'] == 'Negative'].copy()
+        for _, row in negative_df.iterrows():
+            ws.cell(row=row_idx, column=5, value=row['Объект'])
+            ws.cell(row=row_idx, column=6, value=row['Заголовок'])
+            ws.cell(row=row_idx, column=7, value="Риск убытка")
+            ws.cell(row=row_idx, column=8, value=row.get('Reasoning', 'Не проанализировано'))
+            ws.cell(row=row_idx, column=9, value=row['Выдержки из текста'])
+            row_idx += 1
+
+        # 6. Update 'Тех.приложение' sheet
+        if 'Тех.приложение' not in wb.sheetnames:
+            wb.create_sheet('Тех.приложение')
+        ws = wb['Тех.приложение']
+        
+        tech_cols = ['Объект', 'Заголовок', 'Выдержки из текста', 'Translated', 'Sentiment', 'Impact', 'Reasoning']
+        tech_df = df[tech_cols].copy()
+        
+        for r_idx, row in enumerate(dataframe_to_rows(tech_df, index=False, header=True), start=1):
+            for c_idx, value in enumerate(row, start=1):
+                ws.cell(row=r_idx, column=c_idx, value=value)
+
+        # Save workbook
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
         return output
-    except Exception as e:
-        st.error(f"Error saving file: {str(e)}")
-        return None
 
+    except Exception as e:
+        st.error(f"Error creating output file: {str(e)}")
+        st.error(f"DataFrame shape: {df.shape}")
+        st.error(f"Available columns: {df.columns.tolist()}")
+        return None
 
 def main():
     st.set_page_config(layout="wide")
     
     with st.sidebar:
-        st.title("::: AI-анализ мониторинга новостей (v.4.9):::")
+        st.title("::: AI-анализ мониторинга новостей (v.4.10):::")
         st.subheader("по материалам СКАН-ИНТЕРФАКС")
         
         model_choice = st.radio(
